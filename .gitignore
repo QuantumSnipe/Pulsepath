@@ -1,0 +1,50 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+.pytest_cache/
+.ruff_cache/
+.idea/
+.vscode/*
+!.vscode/tasks.json
+.claude/
+xcuserdata/
+*.xcuserstate
+
+build/
+dist/
+*.egg-info/
+
+# Secrets and signing material if they ever appear here.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.mobileprovision
+id_rsa
+id_ed25519
+credentials
+credentials.*
+
+# Installed locally by install-geoip.command. Do not redistribute the database.
+data/*.mmdb
+data/*.mmdb.gz
+data/*.part
+vendor/
+
+# Refreshed locally by `make update-references`; the reviewed snapshot lives in references/.
+data/provider-ranges.json
+
+# Private, local connection history.
+data/pulsepath-history.sqlite3
+data/pulsepath-history.sqlite3-shm
+data/pulsepath-history.sqlite3-wal
+*.sqlite3
+
+# Runtime state lives outside the repository, but ignore it if copied here.
+server.pid

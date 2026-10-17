@@ -1,0 +1,28 @@
+{
+ "format": 1,
+ "reviewed": "2026-09-25",
+ "apps": [
+  {
+   "app": "Apple Push",
+   "processes": ["apsd"],
+   "expected": [{"provider": "Apple"}],
+   "source": "observed 2026-09"
+  },
+  {
+   "app": "Claude",
+   "processes": ["claude"],
+   "expected": [
+    {"provider": "Anthropic, PBC"},
+    {"provider": "Cloudflare", "class": "edge"},
+    {"provider": "Google", "class": "hosted"}
+   ],
+   "source": "observed 2026-09"
+  },
+  {
+   "app": "WhatsApp",
+   "processes": ["whatsapp"],
+   "expected": [{"provider": "Meta"}],
+   "source": "observed 2026-09"
+  }
+ ]
+}

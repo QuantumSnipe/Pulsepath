@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a focused improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should Pulsepath solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Describe the user-facing behavior without assuming an implementation.
+    validations:
+      required: true
+  - type: dropdown
+    id: data_change
+    attributes:
+      label: Does this observe, retain, display, or transmit new data?
+      options:
+        - "No"
+        - "Yes"
+        - "Unsure"
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy and permission impact
+      description: Explain any new metadata, external service, macOS permission, entitlement, or privileged component.

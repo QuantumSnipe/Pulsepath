@@ -1,0 +1,3633 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pulsepath — Network Route Explorer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f7f5fb;
+      --muted: #8f96a8;
+      --panel: rgba(13, 15, 23, .88);
+      --panel-solid: #0d0f17;
+      --line: rgba(255, 255, 255, .09);
+      --pink: #ff3d8d;
+      --pink-hot: #ff6cb0;
+      --red: #ff365e;
+      --violet: #9d6bff;
+      --cyan: #5ee7ff;
+      --green: #52e6a7;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #07080d; }
+
+    body {
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 75% 8%, rgba(126, 48, 149, .14), transparent 31%),
+        radial-gradient(circle at 20% 85%, rgba(41, 74, 110, .14), transparent 32%),
+        #07080d;
+    }
+
+    button { font: inherit; }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      min-height: 560px;
+      display: grid;
+      grid-template-columns: var(--sidebar-width, 280px) 1fr;
+      grid-template-rows: 64px minmax(0, 1fr);
+    }
+
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 8, 13, .82);
+      backdrop-filter: blur(22px);
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 240px;
+      font-weight: 720;
+      letter-spacing: -.02em;
+    }
+
+    .brand-mark {
+      width: 27px;
+      height: 27px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, rgba(255,61,141,.2), rgba(157,107,255,.08));
+      box-shadow: inset 0 0 18px rgba(255,61,141,.09);
+    }
+
+    .brand-mark::before {
+      content: "";
+      width: 13px;
+      height: 8px;
+      border: 2px solid var(--pink-hot);
+      border-left-color: transparent;
+      border-right-color: transparent;
+      border-radius: 50%;
+      transform: rotate(-12deg);
+      filter: drop-shadow(0 0 5px var(--pink));
+    }
+
+    .live-state {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #ffb0cf;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--pink-hot);
+      box-shadow: 0 0 0 4px rgba(255,61,141,.12), 0 0 12px var(--pink);
+      animation: live-pulse 1.5s ease-out infinite;
+    }
+
+    @keyframes live-pulse {
+      50% { box-shadow: 0 0 0 7px rgba(255,61,141,0), 0 0 18px var(--pink); }
+    }
+
+    .top-summary {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .top-summary strong { color: var(--ink); font-weight: 600; }
+
+    .capture-button {
+      appearance: none;
+      border: 1px solid rgba(255, 79, 149, .3);
+      border-radius: 9px;
+      color: #ffd4e5;
+      background: rgba(255, 61, 141, .1);
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: .2s ease;
+    }
+
+    .capture-button:hover { background: rgba(255,61,141,.18); border-color: rgba(255,108,176,.55); }
+
+    .mode-button {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: #bbc2d2;
+      background: rgba(255,255,255,.035);
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .mode-button:hover { background: rgba(255,255,255,.07); color: var(--ink); }
+    .mode-button[hidden] { display: none; }
+
+    .security-button { display: flex; align-items: center; gap: 7px; }
+    .security-badge {
+      display: grid;
+      place-items: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 99px;
+      background: rgba(255,61,141,.15);
+      color: #ffc5dc;
+      font-size: 9px;
+    }
+
+    .security-badge.quiet { background: rgba(82,230,167,.1); color: #8cebc3; }
+
+    .sidebar {
+      grid-column: 1;
+      grid-row: 2;
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      border-right: 1px solid var(--line);
+      background: rgba(10, 11, 17, .78);
+      backdrop-filter: blur(18px);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+    }
+
+    .sidebar-resize {
+      position: absolute;
+      top: 0;
+      right: -3px;
+      bottom: 0;
+      width: 7px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: col-resize;
+      touch-action: none;
+    }
+
+    .sidebar-resize:hover,
+    .sidebar-resize:focus-visible { background: rgba(255, 61, 141, .35); }
+
+    .side-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 18px 12px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+
+    .side-heading span:last-child {
+      color: #555b6b;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .activity-search { padding: 0 10px 10px; }
+
+    .activity-search input {
+      width: 100%;
+      height: 34px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 9px;
+      outline: none;
+      background: rgba(255,255,255,.035);
+      color: var(--ink);
+      padding: 0 11px;
+      font: inherit;
+      font-size: 11px;
+    }
+
+    .activity-search input::placeholder { color: #596071; }
+    .activity-search input:focus { border-color: rgba(255,85,153,.38); box-shadow: 0 0 0 3px rgba(255,61,141,.07); }
+
+    .investigate-controls { display: flex; gap: 6px; }
+    .investigate-controls input {
+      flex: 1;
+      min-width: 0;
+      height: 34px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 9px;
+      outline: none;
+      background: rgba(255,255,255,.035);
+      color: var(--ink);
+      padding: 0 11px;
+      font: inherit;
+      font-size: 11px;
+    }
+    .investigate-controls input::placeholder { color: #596071; }
+    .investigate-controls input:focus { border-color: rgba(255,85,153,.38); box-shadow: 0 0 0 3px rgba(255,61,141,.07); }
+    .investigate-controls .security-control { flex: 0 0 auto; width: auto; }
+    .investigate-result { display: grid; gap: 6px; }
+    .investigate-rows { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+    .investigate-rows li { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+    .investigate-rows li span { color: #8b93a7; }
+
+    .activity-list { min-height: 0; padding: 0 10px; display: grid; gap: 5px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
+
+    .activity-empty {
+      padding: 22px 12px;
+      color: #747c8f;
+      font-size: 11px;
+      line-height: 1.55;
+      text-align: center;
+    }
+
+    .activity {
+      width: 100%;
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      padding: 12px 10px;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 31px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      transition: .18s ease;
+    }
+
+    .activity:hover { background: rgba(255,255,255,.035); }
+    .activity.tracing { box-shadow: inset 2px 0 #70d6dc; background: rgba(112,214,220,.045); }
+    .trace-badge { display: inline-block; width: fit-content; margin-top: 5px; padding: 2px 6px; border-radius: 5px; color: #a3e3e7; background: rgba(112,214,220,.1); font-size: 9px; }
+
+    .activity.active {
+      border-color: rgba(255, 75, 146, .24);
+      background: linear-gradient(90deg, rgba(255,61,141,.12), rgba(255,61,141,.035));
+    }
+
+    .activity-icon {
+      width: 31px;
+      height: 31px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      color: #cbd2e3;
+      background: rgba(255,255,255,.055);
+      border: 1px solid rgba(255,255,255,.07);
+    }
+
+    .activity.active .activity-icon { color: #ffd0e3; background: rgba(255,61,141,.13); }
+    .activity-main { min-width: 0; }
+    .activity-name { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .activity-target { display: block; margin-top: 4px; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .activity-latency { font-size: 10px; color: #afb6c6; align-self: start; padding-top: 2px; }
+
+    .source-card {
+      margin: auto 14px 14px;
+      border-top: 1px solid var(--line);
+      padding: 15px 4px 2px;
+    }
+
+    .source-row { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; }
+
+    .source-status {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px rgba(82,230,167,.55);
+    }
+
+    .source-card small { display: block; margin: 8px 0 0 16px; color: #545a69; font-size: 10px; line-height: 1.4; }
+
+    .map-shell {
+      grid-column: 2;
+      grid-row: 2;
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse at 72% 22%, rgba(102, 43, 126, .15), transparent 38%),
+        radial-gradient(ellipse at 30% 72%, rgba(18, 77, 108, .1), transparent 44%),
+        linear-gradient(180deg, #070a11 0%, #080d17 52%, #060910 100%);
+    }
+
+    #map {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: grab;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #map * { -webkit-user-select: none; user-select: none; }
+    #map.dragging, #map.dragging .node-marker { cursor: grabbing; }
+
+    .ocean-field { fill: rgba(8, 14, 25, .66); }
+    .graticule line { stroke: rgba(126, 151, 181, .085); stroke-width: .7; stroke-dasharray: 2 7; vector-effect: non-scaling-stroke; }
+    .graticule line.minor { opacity: .45; }
+    .equator { stroke: rgba(168, 109, 175, .16) !important; stroke-dasharray: 4 8 !important; }
+
+    .land {
+      fill: #151d2b;
+      stroke: rgba(191, 211, 232, .18);
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+      transition: fill .2s ease;
+    }
+
+    .map-shell.detail-medium .land { fill: #182233; }
+    .country-land { fill-rule: evenodd; stroke-width: .72; pointer-events: none; }
+    .country-land.tone-0 { fill: #141d2a; }
+    .country-land.tone-1 { fill: #16202e; }
+    .country-land.tone-2 { fill: #172231; }
+    .country-land.tone-3 { fill: #151f2d; }
+    .country-land.tone-4 { fill: #182332; }
+    .country-land.tone-5 { fill: #141e2c; }
+    .country-land.tone-6 { fill: #17202f; }
+    .map-shell.detail-medium .country-land { filter: brightness(1.08); }
+    .map-shell.detail-city .country-land { stroke: rgba(196, 215, 236, .24); }
+    .state-boundary { fill: none; stroke: rgba(164, 181, 204, .11); stroke-width: .55; vector-effect: non-scaling-stroke; opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+    .map-shell.detail-high .state-boundary { opacity: .34; }
+    .map-shell.detail-city .state-boundary { opacity: .58; }
+    .lake-shape { fill: #09111d; stroke: rgba(92, 150, 183, .3); stroke-width: .65; vector-effect: non-scaling-stroke; pointer-events: none; }
+    .river-line { fill: none; stroke: rgba(76, 144, 180, .32); stroke-width: .62; vector-effect: non-scaling-stroke; opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+    .map-shell.detail-high .river-line { opacity: .24; }
+    .map-shell.detail-city .river-line { opacity: .48; }
+    .country-line { fill: none; stroke: rgba(184,193,212,.065); stroke-width: .75; vector-effect: non-scaling-stroke; }
+
+    .route-glow, .route-line, .route-base { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+    .route-base { stroke: rgba(255,255,255,.065); stroke-width: 1.2; }
+    .route-glow { stroke: url(#routeGradient); stroke-width: var(--glow-width, 13px); opacity: .2; filter: url(#softGlow); }
+    .route-line { stroke: url(#routeGradient); stroke-width: var(--stream-width, 3.2px); filter: url(#lineGlow); stroke-dasharray: 4 7; animation: route-stream 1.2s linear infinite; }
+    .route-line.inferred-segment { stroke: #778094; stroke-width: 1.7; filter: none; stroke-dasharray: 3 8; opacity: .68; animation: none; }
+    .route-line.inferred-segment.traced-flow { animation: route-stream 1.2s linear infinite; }
+    .map-shell.paused .route-line { animation-play-state: paused; }
+    .map-shell.selected-recent .route-line { animation: none; }
+    .live-state.collector-unavailable .live-dot { animation: none; background: #a1a6b4; box-shadow: none; }
+    .live-state.animation-paused .live-dot { animation-play-state: paused; }
+
+    @keyframes route-stream { to { stroke-dashoffset: -22; } }
+
+    .node-halo { fill: rgba(255,61,141,.08); stroke: rgba(255,108,176,.23); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .geo-estimate-ring { fill: none; stroke: rgba(94,231,255,.28); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+    .device-location-ring { fill: rgba(94,231,255,.035); stroke: rgba(94,231,255,.58); stroke-width: 1.2; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+    .node-core { fill: #fff; stroke: var(--pink); stroke-width: 4; paint-order: stroke; vector-effect: non-scaling-stroke; filter: url(#lineGlow); }
+    .node-marker { pointer-events: auto; cursor: pointer; }
+    .node-marker.inferred-hop .node-halo { fill: rgba(126,138,164,.045); stroke: rgba(126,138,164,.22); }
+    .node-marker.inferred-hop .node-core { fill: #7e879a; stroke: #272b38; filter: none; }
+    .hop-pulse { fill: none; stroke: #ff8cc6; stroke-width: 1.6; opacity: 0; pointer-events: none; vector-effect: non-scaling-stroke; filter: url(#lineGlow); }
+    .node-marker.inferred-hop .hop-pulse { stroke: #a3abbd; filter: none; }
+
+    .node-label {
+      fill: #fbf6fb;
+      font-size: 12px;
+      font-weight: 650;
+      paint-order: stroke;
+      stroke: #0a0b11;
+      stroke-width: 4px;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .node-detail { fill: #8f96a8; font-size: 9px; paint-order: stroke; stroke: #0a0b11; stroke-width: 3px; vector-effect: non-scaling-stroke; }
+    .city-detail { opacity: 0; transition: opacity .2s ease; }
+
+    .packet { fill: #fff5fa; filter: url(#hotGlow); }
+    .packet-trail { fill: none; stroke: #ff70ba; stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .55; pointer-events: none; }
+    .endpoint-frame { fill: none; stroke: #dd91ff; stroke-width: 1; opacity: .65; pointer-events: none; }
+    .endpoint-frame.origin { stroke: #71ecf5; }
+    .map-shell:not(.luminous) .luminous-detail { display: none; }
+    .map-shell.luminous .route-glow { stroke: url(#luminousGradient); opacity: .34; }
+    .map-shell.luminous .packet { fill: #e2fcff; }
+    .map-shell.luminous .node-marker.origin-node .node-core { stroke: #60dbe9; }
+    .map-shell.luminous .node-marker.origin-node .node-halo { stroke: #60dbe955; fill: #60dbe910; }
+    .map-shell.luminous .route-base { stroke: #dc8be52b; }
+    .map-shell.selected-recent .endpoint-frame { opacity: .25; }
+    .signal-field { fill: url(#signalGrid); opacity: .2; pointer-events: none; }
+    .constellation-link { fill: none; stroke: #91b7e8; stroke-width: 1.2; stroke-dasharray: 3 7; opacity: .48; vector-effect: non-scaling-stroke; pointer-events: none; }
+    .constellation-bloom { fill: none; stroke: #9090e7; stroke-width: 7; opacity: .11; vector-effect: non-scaling-stroke; pointer-events: none; }
+    .constellation-pulse { fill: #b9dff4; opacity: .65; pointer-events: none; }
+    .constellation-node { cursor: pointer; }
+    .constellation-node .constellation-ring { fill: #101827; stroke: #97b8e8; stroke-width: 1; }
+    .constellation-node text, .constellation-label { fill: #bdd3e8; font-size: 10px; paint-order: stroke; stroke: #090e18; stroke-width: 3px; stroke-linejoin: round; }
+    .constellation-label { opacity: 0; pointer-events: none; }
+    .constellation-node:hover + .constellation-label, .constellation-node:focus + .constellation-label { opacity: 1; }
+    .constellation-node:hover .constellation-ring, .constellation-node:focus .constellation-ring { stroke: #e6c6ff; stroke-width: 2; }
+    .constellation-node:focus { outline: none; }
+    .constellation-leader { stroke: #8eafd566; stroke-width: 1; pointer-events: none; }
+
+    .protocol-chip rect {
+      fill: rgba(17, 19, 29, .96);
+      stroke: rgba(255, 92, 158, .32);
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .protocol-chip text { fill: #ffc6dd; font-size: 9px; font-weight: 600; letter-spacing: .03em; }
+
+    .hop-detail { opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+    .protocol-chip { opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+    .map-shell.detail-medium .protocol-chip { opacity: 1; }
+    .map-shell.detail-high .hop-detail { opacity: 1; }
+    .map-shell.detail-high .protocol-chip { opacity: .55; }
+    .map-shell.detail-high .node-marker.hop-detail { pointer-events: auto; }
+    .map-shell.detail-city .city-detail { opacity: 1; }
+
+    .map-title {
+      position: absolute;
+      top: 22px;
+      left: 24px;
+      pointer-events: none;
+    }
+
+    .map-title .eyebrow { color: #737b8f; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    .map-title h1 { margin: 5px 0 0; font-size: clamp(18px, 2vw, 25px); letter-spacing: -.035em; font-weight: 650; }
+    .map-title p { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+
+    .location-control {
+      position: absolute;
+      top: 94px;
+      left: 24px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      max-width: min(440px, calc(100% - 150px));
+    }
+
+    .location-button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 9px;
+      background: rgba(12,14,21,.82);
+      color: #cbd1de;
+      min-height: 31px;
+      padding: 0 10px;
+      font: inherit;
+      font-size: 10px;
+      white-space: nowrap;
+      cursor: pointer;
+      backdrop-filter: blur(14px);
+    }
+
+    .location-button:hover { background: rgba(255,255,255,.06); }
+    .location-button:disabled { opacity: .58; cursor: progress; }
+    .location-button.active { color: #b8f3ff; border-color: rgba(94,231,255,.32); background: rgba(94,231,255,.08); }
+
+    .location-status {
+      color: #737b8f;
+      font-size: 9px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .zoom-control {
+      position: absolute;
+      right: 20px;
+      top: 20px;
+      display: grid;
+      width: 35px;
+      border: 1px solid var(--line);
+      background: rgba(12,14,21,.82);
+      backdrop-filter: blur(14px);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .zoom-control button {
+      appearance: none;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: #d9deea;
+      height: 34px;
+      cursor: pointer;
+    }
+
+    .zoom-control button:last-child { border-bottom: 0; }
+    .zoom-control button:hover { background: rgba(255,255,255,.06); }
+    .zoom-control button:disabled { opacity: .35; cursor: default; }
+
+    .zoom-readout {
+      position: absolute;
+      top: 20px;
+      right: 66px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      padding: 0 11px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(12,14,21,.78);
+      color: #9da5b7;
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      backdrop-filter: blur(14px);
+    }
+
+    .visual-style { position: absolute; top: 64px; right: 66px; min-height: 32px; padding: 0 11px; border: 1px solid #ac81ec35; border-radius: 9px; background: #0d101dde; color: #d6b7f5; font-size: 10px; cursor: pointer; }
+    .visual-style[aria-pressed="true"] { border-color: #9c81ef66; background: linear-gradient(110deg, #63e0ef12, #b466ed1c); box-shadow: inset 0 0 14px #a866ec08; }
+    .visual-style:hover { border-color: #c6a8f2; color: #f0e1ff; }
+    .visual-style:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+    .overview-control { top: 105px; color: #b4d9ed; border-color: #729fc044; }
+    .overview-status { position: absolute; right: 66px; top: 144px; max-width: 270px; color: #818fa8; font-size: 9px; text-align: right; pointer-events: none; }
+    .constellation-picker { position: absolute; z-index: 5; top: 167px; right: 66px; width: min(280px, calc(100% - 90px)); border: 1px solid #8fa3d855; border-radius: 12px; background: #0c111ef5; box-shadow: 0 14px 45px #0008; padding: 12px; }
+    .constellation-picker[hidden] { display: none; }
+    .constellation-picker header { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+    .constellation-picker header button { margin-left: auto; border: 0; background: none; color: #bcc8dd; cursor: pointer; }
+    .constellation-picker p { color: #94a0b8; font-size: 10px; line-height: 1.5; }
+    .constellation-choices { display: grid; gap: 5px; max-height: 220px; overflow: auto; }
+    .constellation-choice { border: 1px solid #ffffff12; border-radius: 7px; padding: 9px; background: #ffffff04; color: #d7e5f3; text-align: left; font-size: 11px; cursor: pointer; overflow-wrap: anywhere; }
+    .constellation-choice:hover, .constellation-choice:focus-visible { background: #8ea5ff14; border-color: #9fb9ed88; }
+    .constellation-choice small { display: block; margin-top: 4px; color: #96a7bd; }
+
+    .map-explanation { position: absolute; left: 24px; bottom: 49px; z-index: 4; width: min(330px, calc(100% - 48px)); border: 1px solid var(--line); border-radius: 12px; background: rgba(10,14,23,.96); color: #b9c1d1; font-size: 11px; box-shadow: 0 8px 30px #0003; }
+    .map-explanation > summary { cursor: pointer; padding: 11px 13px; font-weight: 600; }
+    .map-explanation > summary span { color: #b0a0bd; font-weight: 400; margin-left: 8px; }
+    .map-explanation-body { padding: 0 13px 12px; max-height: min(340px, 45vh); overflow: auto; line-height: 1.55; }
+    .map-explanation h3 { font-size: 11px; margin: 10px 0 4px; color: #e3e6ef; }
+    .map-explanation p { margin: 5px 0; }
+    .hop-list { list-style: none; padding: 0; margin: 10px 0; }
+    .hop-list li + li { margin-top: 5px; }
+    .hop-row { display: block; width: 100%; padding: 9px; text-align: left; color: #c4cada; background: #ffffff05; border: 1px solid #ffffff0b; border-radius: 7px; cursor: pointer; font: inherit; }
+    .hop-row:hover, .hop-row:focus-visible { background: #ff3d8d0c; border-color: #ff3d8d66; }
+    .hop-row strong, .hop-row span { display: block; }
+    .hop-row span { color: #929bae; margin-top: 3px; font-size: 10px; }
+    .hop-inspector { margin: 10px 0; padding: 10px; border: 1px solid #ff3d8d55; border-radius: 8px; background: #ff3d8d06; }
+    .hop-inspector[hidden] { display: none; }
+    .hop-inspector h3 { margin-top: 0; color: #ffbad6; }
+    .hop-inspector dl { margin: 8px 0; }
+    .hop-inspector dt { margin-top: 8px; color: #929bae; font-size: 10px; }
+    .hop-inspector dd { margin: 2px 0 0; color: #e3e6ef; overflow-wrap: anywhere; }
+    .hop-inspector summary { cursor: pointer; color: #e3e6ef; }
+    /* Keep focus on the point itself, without framing the whole SVG label. */
+    .node-marker:focus { outline: none; }
+    .node-marker[aria-pressed="true"] .node-halo { stroke: rgba(255,186,214,.65); stroke-width: 1.2; }
+    .node-marker:focus-visible .node-halo { stroke: #ffbad6; stroke-width: 1.5; }
+    .city-evidence { padding-top: 9px; border-top: 1px solid var(--line); }
+    .city-evidence summary { cursor: pointer; }
+    .city-evidence summary span { color: #b0a0bd; margin-left: 6px; }
+    .map-shell.show-intermediate-hops .hop-detail { opacity: 1; pointer-events: auto; }
+    @media (max-width: 840px) { .map-explanation { left: 12px; bottom: 12px; } }
+
+    .legend {
+      position: absolute;
+      left: 24px;
+      bottom: 21px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      color: #7f8799;
+      font-size: 10px;
+      pointer-events: none;
+    }
+
+    .legend-item { display: flex; gap: 6px; align-items: center; }
+    .geo-attribution { color: #737b8f; text-decoration: none; pointer-events: auto; }
+    .geo-attribution:hover { color: #b7bfd0; }
+    .geo-attribution[hidden] { display: none; }
+    .legend-swatch { width: 14px; height: 2px; border-radius: 3px; background: var(--pink); box-shadow: 0 0 6px var(--pink); }
+    .legend-swatch.inferred { background: repeating-linear-gradient(90deg, #656d80 0 3px, transparent 3px 5px); box-shadow: none; }
+    .legend-dot { width: 5px; height: 5px; border-radius: 50%; background: white; box-shadow: 0 0 7px var(--pink); }
+
+    .trace-panel {
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      width: min(360px, calc(100% - 40px));
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 15px;
+      background: rgba(11, 13, 20, .9);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 60px rgba(0,0,0,.3);
+      overflow: hidden;
+    }
+
+    .trace-head { display: flex; align-items: center; padding: 13px 14px 11px; border-bottom: 1px solid var(--line); }
+    .trace-head > div:first-child { min-width: 0; }
+    .trace-label { color: #777f91; font-size: 9px; text-transform: uppercase; letter-spacing: .09em; }
+    .trace-name { margin-top: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .trace-time { margin-left: auto; color: #e4b2c7; font-size: 11px; }
+
+    .trace-action {
+      appearance: none;
+      border: 1px solid rgba(255, 91, 157, .28);
+      border-radius: 8px;
+      background: rgba(255, 61, 141, .09);
+      color: #ffc7de;
+      padding: 6px 9px;
+      margin-left: 10px;
+      font-size: 9px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .trace-action:hover { background: rgba(255,61,141,.16); }
+    .trace-action:disabled { opacity: .55; cursor: progress; }
+    .trace-action[hidden] { display: none; }
+
+    .trace-steps { display: grid; grid-template-columns: repeat(4, 1fr); position: relative; padding: 13px 13px 12px; }
+    .trace-steps::before { content: ""; position: absolute; left: 28px; right: 28px; top: 25px; height: 1px; background: linear-gradient(90deg, var(--pink), rgba(157,107,255,.5)); }
+    .trace-step { text-align: center; position: relative; min-width: 0; }
+    .trace-step i { display: block; position: relative; width: 7px; height: 7px; margin: 0 auto 8px; border-radius: 50%; background: var(--pink-hot); box-shadow: 0 0 9px rgba(255,61,141,.75); }
+    .trace-step:nth-child(3) i, .trace-step:nth-child(4) i { background: #a779ff; box-shadow: 0 0 9px rgba(157,107,255,.65); }
+    .trace-step b { display: block; font-size: 9px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .trace-step span { display: block; margin-top: 3px; color: #71798a; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .socket-details { border-top: 1px solid var(--line); }
+    .socket-details[hidden] { display: none; }
+    .socket-details summary {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 14px;
+      color: #9ba4b7;
+      font-size: 9px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .socket-details summary::-webkit-details-marker { display: none; }
+    .socket-details summary::before { content: "›"; color: var(--pink); font-size: 14px; transition: transform .18s ease; }
+    .socket-details[open] summary::before { transform: rotate(90deg); }
+    .socket-details summary span:last-child { margin-left: auto; color: #687084; }
+    .socket-list { max-height: 154px; overflow-y: auto; border-top: 1px solid rgba(255,255,255,.045); }
+    .socket-row { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.45fr) auto; gap: 8px; padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,.04); font-size: 8px; }
+    .socket-row:last-child { border-bottom: 0; }
+    .socket-row b, .socket-row span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .socket-row b { color: #c6ccda; font-weight: 550; }
+    .socket-row span { color: #747d90; }
+    .socket-row em { color: #cf93b1; font-style: normal; font-variant-numeric: tabular-nums; }
+
+    .security-panel {
+      position: absolute;
+      z-index: 8;
+      top: 68px;
+      right: 20px;
+      bottom: 20px;
+      width: min(390px, calc(100% - 40px));
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 17px;
+      background: rgba(10, 12, 19, .95);
+      box-shadow: 0 28px 90px rgba(0,0,0,.52);
+      backdrop-filter: blur(24px);
+      overflow: hidden;
+    }
+
+    .security-panel[hidden] { display: none; }
+    .security-panel-head { display: flex; align-items: flex-start; gap: 12px; padding: 17px 17px 14px; border-bottom: 1px solid var(--line); }
+    .security-panel-head > div { min-width: 0; }
+    .security-panel-head h2 { margin: 2px 0 0; font-size: 17px; letter-spacing: -.025em; }
+    .security-panel-head p { margin: 5px 0 0; color: #747c8e; font-size: 10px; line-height: 1.45; }
+    .security-close { margin-left: auto; appearance: none; border: 0; background: transparent; color: #8d95a7; font-size: 18px; cursor: pointer; }
+    .security-body { min-height: 0; overflow-y: auto; padding: 14px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.14) transparent; }
+
+    .security-state {
+      padding: 14px;
+      border: 1px solid rgba(94,231,255,.15);
+      border-radius: 13px;
+      background: linear-gradient(135deg, rgba(94,231,255,.075), rgba(157,107,255,.035));
+    }
+
+    .security-state.ready { border-color: rgba(82,230,167,.18); background: linear-gradient(135deg, rgba(82,230,167,.07), rgba(94,231,255,.025)); }
+    .security-state.paused { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.025); }
+    .security-state-line { display: flex; align-items: center; gap: 9px; }
+    .security-state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px rgba(94,231,255,.65); }
+    .security-state.ready .security-state-dot { background: var(--green); box-shadow: 0 0 10px rgba(82,230,167,.55); }
+    .security-state.paused .security-state-dot { background: #777f91; box-shadow: none; }
+    .security-state strong { font-size: 12px; }
+    .security-state p { margin: 7px 0 0 17px; color: #858da0; font-size: 10px; line-height: 1.5; }
+    .learning-track { height: 3px; margin: 11px 0 0 17px; border-radius: 4px; background: rgba(255,255,255,.07); overflow: hidden; }
+    .learning-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--violet)); transition: width .35s ease; }
+
+    .security-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 9px 0 16px; }
+    .security-metric { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.022); }
+    .security-metric b { display: block; font-size: 15px; }
+    .security-metric span { display: block; margin-top: 3px; color: #6f7789; font-size: 8px; text-transform: uppercase; letter-spacing: .07em; }
+    .security-section-label { margin: 0 2px 8px; color: #838b9d; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+    .findings-list { display: grid; gap: 8px; }
+    .finding-card { padding: 12px; border: 1px solid rgba(255,255,255,.085); border-radius: 12px; background: rgba(255,255,255,.025); }
+    .finding-card.attention { border-color: rgba(255,61,141,.22); background: linear-gradient(135deg, rgba(255,61,141,.075), rgba(255,255,255,.018)); }
+    .finding-top { display: flex; gap: 8px; align-items: center; }
+    .finding-level { padding: 3px 6px; border-radius: 99px; background: rgba(94,231,255,.09); color: #a9effc; font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
+    .finding-card.attention .finding-level { background: rgba(255,61,141,.13); color: #ffc1da; }
+    .finding-time { margin-left: auto; color: #656d7e; font-size: 8px; }
+    .finding-card h3 { margin: 9px 0 0; font-size: 12px; }
+    .finding-card p { margin: 5px 0 0; color: #8a92a4; font-size: 10px; line-height: 1.45; }
+    .finding-evidence { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+    .finding-evidence span { max-width: 100%; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,.045); color: #aab2c2; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .finding-evidence span.finding-signal { background: rgba(94,231,255,.08); color: #d5f7ff; }
+    .finding-card.attention .finding-evidence span.finding-signal { background: rgba(255,61,141,.1); color: #ffd0e4; }
+    .finding-actions { display: flex; gap: 14px; align-items: center; margin-top: 9px; }
+    .finding-show, .finding-expect { appearance: none; margin: 0; padding: 0; border: 0; background: transparent; font-size: 9px; cursor: pointer; }
+    .finding-show { color: #f3a9c8; }
+    .finding-expect { color: #8cebc3; }
+    .finding-measurement { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 9px; }
+    .finding-measurement summary { color: #a9effc; cursor: pointer; font-size: 10px; }
+    .security-empty { padding: 22px 13px; border: 1px dashed rgba(255,255,255,.09); border-radius: 12px; color: #737b8e; font-size: 10px; line-height: 1.5; text-align: center; }
+    .security-controls { display: flex; gap: 7px; padding: 12px 14px; border-top: 1px solid var(--line); }
+    .security-control { flex: 1; appearance: none; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.03); color: #aeb5c4; min-height: 34px; font: inherit; font-size: 9px; cursor: pointer; }
+    .security-control:hover { background: rgba(255,255,255,.065); color: var(--ink); }
+    .security-control.danger { color: #d999b5; }
+
+    .zoom-hint {
+      position: absolute;
+      left: 50%;
+      top: 20px;
+      transform: translateX(-50%);
+      color: #7b8396;
+      font-size: 10px;
+      pointer-events: none;
+      transition: opacity .25s ease;
+    }
+
+    .map-shell.detail-high .zoom-hint { opacity: 0; }
+
+    @media (max-width: 840px) {
+      .app { grid-template-columns: 76px 1fr; }
+      .brand { min-width: 56px; }
+      .brand span:last-child, .live-state, .top-summary > span { display: none; }
+      .sidebar { width: 76px; }
+      .sidebar-resize { display: none; }
+      .side-heading { justify-content: center; padding-inline: 5px; }
+      .side-heading span:first-child, .side-heading span:last-child, .activity-main, .activity-latency, .source-row span:last-child, .source-card small { display: none; }
+      .activity-search { display: none; }
+      .activity { grid-template-columns: 1fr; padding: 9px; }
+      .activity-icon { margin: auto; }
+      .source-row { justify-content: center; }
+      .trace-panel { width: 320px; }
+      .map-title { left: 18px; }
+      .location-control { left: 18px; }
+      .legend { display: none; }
+      .security-button span:first-child { display: none; }
+    }
+
+    @media (max-width: 620px), (max-height: 650px) {
+      .trace-panel { display: none; }
+      .zoom-hint { display: none; }
+      .map-title p { display: none; }
+      .location-control { top: 75px; }
+      .location-status { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .route-line, .live-dot { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>Pulsepath</span></div>
+      <div class="live-state" id="sourceState" role="status"><span class="live-dot"></span><span id="liveStateText">Connecting to collector</span></div>
+      <div class="top-summary">
+        <span><strong id="flowsCount">4</strong> streams</span>
+        <span><strong id="metricValue">Demo</strong> source</span>
+        <button class="mode-button" id="modeButton" type="button" hidden>Use live activity</button>
+        <button class="mode-button security-button" id="securityButton" type="button" hidden aria-expanded="false">
+          <span>Security</span><span class="security-badge quiet" id="securityBadge">0</span>
+        </button>
+        <button class="capture-button" id="captureButton" type="button">Pause animation</button>
+      </div>
+    </header>
+
+    <aside class="sidebar" aria-label="Recent network activity">
+      <button class="sidebar-resize" id="sidebarResize" type="button" role="separator" aria-orientation="vertical" aria-label="Resize activity list" aria-valuemin="240" aria-valuemax="480" aria-valuenow="280"></button>
+      <div class="side-heading"><span>Recent activity</span><span>Now</span></div>
+      <div class="activity-search"><input id="activitySearch" type="search" placeholder="Filter by app, protocol, or IP" aria-label="Filter network activity" autocomplete="off"></div>
+      <div class="activity-list" id="activityList"></div>
+      <div class="source-card">
+        <div class="source-row"><span class="source-status" id="sourceStatus"></span><span id="sourceLabel">Simulation source connected</span></div>
+        <small id="sourceDescription">Launch with start.command to observe local connection metadata.</small>
+      </div>
+    </aside>
+
+    <section class="map-shell luminous" id="mapShell" aria-label="Animated global network map">
+      <svg id="map" viewBox="0 0 1600 800" role="group" aria-labelledby="mapTitle mapDescription">
+        <desc id="mapTitle">Connection metadata map</desc>
+        <desc id="mapDescription">Illustrative connections from this Mac's approximate origin to remote endpoints. Moving dots represent activity; traceroute probes provide hop order, and geographic positions are estimates.</desc>
+        <defs>
+          <pattern id="signalGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r=".7" fill="#6ab6ce"/>
+          </pattern>
+          <linearGradient id="luminousGradient" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1600" y2="0">
+            <stop offset="0" stop-color="#61e9f3"/>
+            <stop offset=".42" stop-color="#ff4b9d"/>
+            <stop offset="1" stop-color="#c184ff"/>
+          </linearGradient>
+          <linearGradient id="routeGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#ff365e"/>
+            <stop offset=".46" stop-color="#ff3d8d"/>
+            <stop offset="1" stop-color="#bd63ff"/>
+          </linearGradient>
+          <filter id="softGlow" x="-30%" y="-50%" width="160%" height="200%">
+            <feGaussianBlur stdDeviation="7"/>
+          </filter>
+          <filter id="lineGlow" x="-40%" y="-80%" width="180%" height="260%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="hotGlow" x="-500%" y="-500%" width="1000%" height="1000%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <g id="worldGroup">
+          <rect class="ocean-field" x="0" y="0" width="1600" height="800"></rect>
+          <rect class="signal-field luminous-detail" x="0" y="0" width="1600" height="800" aria-hidden="true"></rect>
+          <g class="graticule" id="graticule"></g>
+          <g id="landLayer"></g>
+          <g id="stateLayer"></g>
+          <g id="waterLayer"></g>
+          <g id="riverLayer"></g>
+          <g id="constellationLayer"></g>
+          <g id="routeLayer"></g>
+        </g>
+      </svg>
+      <button class="visual-style" id="visualStyleButton" type="button" aria-label="Luminous visuals" aria-pressed="true" title="Toggle decorative glow, activity trails, and endpoint brackets">✦ Luminous</button>
+      <button class="visual-style overview-control" id="constellationButton" type="button" aria-pressed="true" aria-label="Constellation overview">◎ Constellation</button>
+      <div class="overview-status" id="constellationStatus"></div>
+      <aside class="constellation-picker" id="constellationPicker" aria-label="Streams at this map position" hidden>
+        <header><strong>Streams at this map position</strong><button id="constellationClose" type="button" aria-label="Close stream chooser">×</button></header>
+        <p>Shared map placement does not establish a shared server or physical location.</p>
+        <div class="constellation-choices" id="constellationChoices"></div>
+      </aside>
+
+      <div class="map-title">
+        <div class="eyebrow">Selected flow</div>
+        <h1 id="selectedTitle">Deploy preview</h1>
+        <p id="selectedSubtitle">This Mac → Frankfurt → Ashburn</p>
+      </div>
+
+      <div class="location-control">
+        <button class="location-button" id="locationButton" type="button" aria-pressed="false">⌖ Use Mac location</button>
+        <span class="location-status" id="locationStatus">Origin: approximate</span>
+      </div>
+
+      <div class="zoom-hint" id="zoomHint">Zoom for protocols · expand intermediate hops to inspect the route</div>
+      <div class="zoom-readout" id="zoomReadout">World · 1.0×</div>
+      <div class="zoom-control" aria-label="Map zoom controls">
+        <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+        <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+        <button type="button" id="zoomReset" aria-label="Reset map">⌂</button>
+      </div>
+
+      <details class="map-explanation" id="mapExplanation">
+        <summary><b id="hopDisclosureLabel">Show hop details</b> <span id="hopCountBadge"></span></summary>
+        <div class="map-explanation-body">
+          <section class="hop-inspector" id="hopInspector" aria-label="Selected hop details" hidden>
+            <h3 id="hopInspectorTitle"></h3>
+            <p id="hopInspectorStatus"></p>
+            <dl id="hopInspectorFacts"></dl>
+            <details id="hopConnectionContext">
+              <summary>Connections &amp; protocols</summary>
+              <dl id="hopConnectionFacts"></dl>
+              <p>Neighboring steps show traceroute probe order. They do not prove physical links, the application's exact route, or the return path. Router ingress/egress traffic and interfaces are not observable here.</p>
+            </details>
+            <details id="hopEvidenceSources">
+              <summary>Identity &amp; location sources</summary>
+              <dl id="hopSourceFacts"></dl>
+            </details>
+          </section>
+          <p id="hopDisclosureStatus"></p>
+          <button class="trace-action" id="hopTraceButton" type="button" aria-keyshortcuts="T" hidden>Trace route</button>
+          <ol class="hop-list" id="hopList"></ol>
+          <p>No-response steps reveal neither router identity nor city. Responding but unlocated hops use illustrative map positions. A traceroute can also miss routers entirely.</p>
+          <details class="city-evidence" id="cityEvidence">
+            <summary>Location evidence <span id="cityEvidenceBadge">City unverified</span></summary>
+          <h3 id="cityEvidenceTitle">City evidence</h3>
+          <p id="cityEvidenceText"></p>
+          <p id="cityEvidenceSource"></p>
+          <p id="cityTraceEvidence"></p>
+          <p>Geography is context, not a verified physical route. Animated dots illustrate activity.</p>
+          </details>
+        </div>
+      </details>
+
+      <div class="legend" aria-label="Map legend and data attribution">
+        <span class="legend-item"><span class="legend-swatch"></span>Connection visualization</span>
+        <span class="legend-item"><span class="legend-swatch inferred"></span>Inferred segment</span>
+        <span class="legend-item"><span class="legend-dot"></span>Activity animation</span>
+        <a class="geo-attribution" id="geoAttribution" href="https://db-ip.com" target="_blank" rel="noreferrer" hidden>IP Geolocation by DB-IP</a>
+        <a class="geo-attribution" href="https://www.naturalearthdata.com" target="_blank" rel="noreferrer">Map data Natural Earth</a>
+      </div>
+
+      <div class="trace-panel" aria-live="polite">
+        <div class="trace-head">
+          <div><div class="trace-label">Flow timeline</div><div class="trace-name" id="traceName">code → preview.pulse.dev</div></div>
+          <button class="trace-action" id="traceRouteButton" type="button" aria-keyshortcuts="T" hidden>Trace route</button>
+          <div class="trace-time" id="traceTime">87 ms</div>
+        </div>
+        <div class="trace-steps" id="traceSteps"></div>
+        <details class="socket-details" id="socketDetails" hidden>
+          <summary><span id="socketSummary">1 underlying socket</span><span>inspect metadata</span></summary>
+          <div class="socket-list" id="socketList"></div>
+        </details>
+      </div>
+
+      <aside class="security-panel" id="securityPanel" aria-label="Local security history" hidden>
+        <div class="security-panel-head">
+          <div>
+            <div class="trace-label">Private on-device analysis</div>
+            <h2>Local security</h2>
+            <p>Pulsepath learns familiar connections and explains what changed. No traffic contents leave this Mac.</p>
+          </div>
+          <button class="security-close" id="securityClose" type="button" aria-label="Close security panel">×</button>
+        </div>
+        <div class="security-body">
+          <div class="security-state" id="securityState">
+            <div class="security-state-line"><span class="security-state-dot"></span><strong id="securityStateTitle">Learning what’s normal</strong></div>
+            <p id="securityStateText">Building a local baseline from connection metadata.</p>
+            <div class="learning-track" id="learningTrack"><span id="learningProgress"></span></div>
+          </div>
+          <div class="security-metrics">
+            <div class="security-metric"><b id="historyConnections">0</b><span>Services</span></div>
+            <div class="security-metric"><b id="historyApps">0</b><span>Apps</span></div>
+            <div class="security-metric"><b id="historyCountries">0</b><span>Countries</span></div>
+          </div>
+          <div class="security-section-label">Investigate an address</div>
+          <div class="investigate-controls">
+            <input id="investigateInput" type="text" placeholder="IP address, e.g. 104.16.0.1" aria-label="IP address to investigate" autocomplete="off" spellcheck="false">
+            <button class="security-control" id="investigateButton" type="button">Look up</button>
+          </div>
+          <div class="investigate-result" id="investigateResult" role="status" aria-live="polite"></div>
+          <div class="security-section-label">Recent explanations</div>
+          <div class="findings-list" id="findingsList"></div>
+        </div>
+        <div class="security-controls">
+          <button class="security-control" id="historyPauseButton" type="button">Pause history</button>
+          <button class="security-control danger" id="historyClearButton" type="button">Clear local history</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const WIDTH = 1600;
+      const HEIGHT = 800;
+      const MAX_ZOOM = 18;
+      const NS = "http://www.w3.org/2000/svg";
+      const map = document.getElementById("map");
+      const mapShell = document.getElementById("mapShell");
+      const worldGroup = document.getElementById("worldGroup");
+      const routeLayer = document.getElementById("routeLayer");
+      const constellationLayer = document.getElementById("constellationLayer");
+      const landLayer = document.getElementById("landLayer");
+      const stateLayer = document.getElementById("stateLayer");
+      const waterLayer = document.getElementById("waterLayer");
+      const riverLayer = document.getElementById("riverLayer");
+      const graticule = document.getElementById("graticule");
+      const activityList = document.getElementById("activityList");
+      const activitySearch = document.getElementById("activitySearch");
+      const captureButton = document.getElementById("captureButton");
+      const traceRouteButton = document.getElementById("traceRouteButton");
+      const socketDetails = document.getElementById("socketDetails");
+      const socketSummary = document.getElementById("socketSummary");
+      const socketList = document.getElementById("socketList");
+      const zoomReadout = document.getElementById("zoomReadout");
+      const zoomHint = document.getElementById("zoomHint");
+      const locationButton = document.getElementById("locationButton");
+      const locationStatus = document.getElementById("locationStatus");
+      const securityButton = document.getElementById("securityButton");
+      const securityPanel = document.getElementById("securityPanel");
+      const findingsList = document.getElementById("findingsList");
+
+      // The map needs an origin before the user grants Location Services.
+      // Derive an approximate one locally from the Mac's IANA time zone:
+      // nothing leaves the machine and no permission prompt is needed.
+      const TIMEZONE_ORIGINS = {
+        "Europe/Zurich": { lon: 8.54, lat: 47.38 }, "Europe/London": { lon: -0.13, lat: 51.51 },
+        "Europe/Paris": { lon: 2.35, lat: 48.86 }, "Europe/Berlin": { lon: 13.41, lat: 52.52 },
+        "Europe/Madrid": { lon: -3.70, lat: 40.42 }, "Europe/Rome": { lon: 12.50, lat: 41.90 },
+        "Europe/Amsterdam": { lon: 4.90, lat: 52.37 }, "Europe/Athens": { lon: 23.73, lat: 37.98 },
+        "Europe/Stockholm": { lon: 18.07, lat: 59.33 }, "Europe/Oslo": { lon: 10.75, lat: 59.91 },
+        "Europe/Copenhagen": { lon: 12.57, lat: 55.69 }, "Europe/Helsinki": { lon: 24.94, lat: 60.17 },
+        "Europe/Warsaw": { lon: 21.01, lat: 52.23 }, "Europe/Lisbon": { lon: -9.14, lat: 38.72 },
+        "Europe/Dublin": { lon: -6.26, lat: 53.35 }, "Europe/Vienna": { lon: 16.37, lat: 48.21 },
+        "Europe/Prague": { lon: 14.44, lat: 50.08 }, "Europe/Budapest": { lon: 19.04, lat: 47.50 },
+        "Europe/Bucharest": { lon: 26.10, lat: 44.44 }, "Europe/Sofia": { lon: 23.32, lat: 42.70 },
+        "Europe/Brussels": { lon: 4.35, lat: 50.85 }, "Europe/Istanbul": { lon: 28.98, lat: 41.01 },
+        "Europe/Kyiv": { lon: 30.52, lat: 50.45 }, "Europe/Moscow": { lon: 37.62, lat: 55.76 },
+        "America/New_York": { lon: -74.01, lat: 40.71 }, "America/Chicago": { lon: -87.63, lat: 41.88 },
+        "America/Denver": { lon: -104.99, lat: 39.74 }, "America/Phoenix": { lon: -112.07, lat: 33.45 },
+        "America/Los_Angeles": { lon: -118.24, lat: 34.05 }, "America/Toronto": { lon: -79.38, lat: 43.65 },
+        "America/Vancouver": { lon: -123.12, lat: 49.28 }, "America/Mexico_City": { lon: -99.13, lat: 19.43 },
+        "America/Bogota": { lon: -74.07, lat: 4.71 }, "America/Lima": { lon: -77.04, lat: -12.05 },
+        "America/Santiago": { lon: -70.67, lat: -33.45 }, "America/Sao_Paulo": { lon: -46.63, lat: -23.55 },
+        "America/Argentina/Buenos_Aires": { lon: -58.38, lat: -34.60 },
+        "Asia/Tokyo": { lon: 139.69, lat: 35.69 }, "Asia/Seoul": { lon: 126.98, lat: 37.57 },
+        "Asia/Shanghai": { lon: 121.47, lat: 31.23 }, "Asia/Hong_Kong": { lon: 114.17, lat: 22.32 },
+        "Asia/Taipei": { lon: 121.56, lat: 25.03 }, "Asia/Singapore": { lon: 103.85, lat: 1.29 },
+        "Asia/Bangkok": { lon: 100.50, lat: 13.76 }, "Asia/Jakarta": { lon: 106.85, lat: -6.21 },
+        "Asia/Manila": { lon: 120.98, lat: 14.60 }, "Asia/Kolkata": { lon: 77.21, lat: 28.61 },
+        "Asia/Karachi": { lon: 67.01, lat: 24.86 }, "Asia/Dubai": { lon: 55.27, lat: 25.20 },
+        "Asia/Jerusalem": { lon: 35.21, lat: 31.77 }, "Asia/Riyadh": { lon: 46.72, lat: 24.63 },
+        "Africa/Cairo": { lon: 31.24, lat: 30.04 }, "Africa/Lagos": { lon: 3.39, lat: 6.45 },
+        "Africa/Nairobi": { lon: 36.82, lat: -1.29 }, "Africa/Johannesburg": { lon: 28.05, lat: -26.20 },
+        "Africa/Casablanca": { lon: -7.59, lat: 33.57 },
+        "Australia/Sydney": { lon: 151.21, lat: -33.87 }, "Australia/Melbourne": { lon: 144.96, lat: -37.81 },
+        "Australia/Brisbane": { lon: 153.03, lat: -27.47 }, "Australia/Perth": { lon: 115.86, lat: -31.95 },
+        "Pacific/Auckland": { lon: 174.76, lat: -36.85 }, "Pacific/Honolulu": { lon: -157.86, lat: 21.31 }
+      };
+      const REGION_ORIGINS = {
+        Europe: { lon: 10, lat: 50, name: "Europe" },
+        America: { lon: -90, lat: 38, name: "the Americas" },
+        Asia: { lon: 100, lat: 30, name: "Asia" },
+        Africa: { lon: 20, lat: 5, name: "Africa" },
+        Australia: { lon: 134, lat: -26, name: "Australia" },
+        Pacific: { lon: 174, lat: -37, name: "the Pacific" },
+        Atlantic: { lon: -20, lat: 40, name: "the Atlantic region" },
+        Indian: { lon: 73, lat: -5, name: "the Indian Ocean region" }
+      };
+      function timezoneOrigin() {
+        let zone = "";
+        try {
+          zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        } catch {
+          zone = "";
+        }
+        const exact = TIMEZONE_ORIGINS[zone];
+        if (exact) {
+          return { ...exact, name: zone.split("/").pop().replace(/_/g, " "), zone };
+        }
+        const region = REGION_ORIGINS[zone.split("/")[0]];
+        if (region) return { ...region, zone };
+        return { lon: 8.54, lat: 47.38, name: "This Mac", zone: "" };
+      }
+      const originEstimate = timezoneOrigin();
+      const originName = originEstimate.name;
+      const originLabel = originEstimate.zone
+        ? `Origin: ${originName} · time zone estimate`
+        : "Origin: approximate";
+      const fallbackOrigin = { lon: originEstimate.lon, lat: originEstimate.lat };
+      let origin = { ...fallbackOrigin, active: false, accuracy: null };
+      let locationWatchId = null;
+
+      const demoFlows = [
+        {
+          id: "deploy", icon: "⌘", name: "Deploy preview", app: "Visual Studio Code", target: "preview.pulse.dev", latency: 87,
+          subtitle: "Zurich → Frankfurt → Ashburn",
+          points: [
+            { name: "Zurich", detail: "Your Mac · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: "Frankfurt", detail: "ISP exchange · AS3320", lon: 8.68, lat: 50.11 },
+            { name: "London", detail: "Transit edge · AS1299", lon: -0.12, lat: 51.5 },
+            { name: "Ashburn", detail: "Cloud edge · 104.21.16.1", lon: -77.49, lat: 39.04 }
+          ],
+          protocols: ["DNS · UDP 53", "TLS 1.3 · TCP 443", "HTTPS · HTTP/2"],
+          steps: [["VS Code", "event"], ["DNS", "12 ms"], ["TLS 1.3", "31 ms"], ["Preview", "44 ms"]]
+        },
+        {
+          id: "message", icon: "↗", name: "Send message", app: "Team messenger", target: "gateway.chat.example", latency: 42,
+          subtitle: "Zurich → Paris → Dublin",
+          points: [
+            { name: "Zurich", detail: "Your Mac · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: "Basel", detail: "Provider edge · AS6830", lon: 7.59, lat: 47.56 },
+            { name: "Paris", detail: "CDN exchange · AS20940", lon: 2.35, lat: 48.86 },
+            { name: "Dublin", detail: "Message gateway · 34.240.0.1", lon: -6.26, lat: 53.35 }
+          ],
+          protocols: ["DNS · UDP 53", "QUIC · UDP 443", "Encrypted payload"],
+          steps: [["Messenger", "event"], ["DNS", "7 ms"], ["QUIC", "18 ms"], ["Gateway", "17 ms"]]
+        },
+        {
+          id: "api", icon: "{}", name: "Run API request", app: "Terminal", target: "api.sandbox.example", latency: 126,
+          subtitle: "Zurich → Amsterdam → New York",
+          points: [
+            { name: "Zurich", detail: "Terminal · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: "Amsterdam", detail: "Internet exchange · AS1200", lon: 4.9, lat: 52.37 },
+            { name: "Reykjavik", detail: "Transatlantic transit", lon: -21.94, lat: 64.15 },
+            { name: "New York", detail: "API region · 18.210.0.1", lon: -74.0, lat: 40.71 }
+          ],
+          protocols: ["DNS · UDP 53", "TLS 1.3 · TCP 443", "REST · HTTP/2"],
+          steps: [["Terminal", "event"], ["DNS", "14 ms"], ["TLS 1.3", "52 ms"], ["API", "60 ms"]]
+        },
+        {
+          id: "push", icon: "⇧", name: "Git push", app: "JetBrains IDE", target: "git.example.dev", latency: 211,
+          subtitle: "Zurich → Milan → Singapore",
+          points: [
+            { name: "Zurich", detail: "JetBrains · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: "Milan", detail: "European transit · AS6762", lon: 9.19, lat: 45.46 },
+            { name: "Dubai", detail: "Backbone exchange · AS8966", lon: 55.27, lat: 25.2 },
+            { name: "Singapore", detail: "Git mirror · 13.250.0.1", lon: 103.82, lat: 1.35 }
+          ],
+          protocols: ["DNS · UDP 53", "SSH · TCP 22", "Git smart protocol"],
+          steps: [["JetBrains", "event"], ["DNS", "11 ms"], ["SSH", "83 ms"], ["Git mirror", "117 ms"]]
+        }
+      ];
+
+      // Additional examples make the overview explorable without observing
+      // real traffic. These belong exclusively to the labeled simulation.
+      [
+        ["sync", "⇅", "Cloud sync", "File sync", "sync.example", "Sydney", 151.21, -33.87, "203.0.113.40"],
+        ["packages", "↓", "Package download", "Package manager", "packages.example", "Tokyo", 139.69, 35.68, "203.0.113.41"],
+        ["call", "◉", "Video call", "Video meeting", "media.example", "San Francisco", -122.42, 37.77, "203.0.113.42"]
+      ].forEach(([id, icon, name, app, target, city, lon, lat, ip]) => demoFlows.push({
+        id, icon, name, app, target, latencyText: "SAMPLE", subtitle: `Zurich → ${city} · sample connection`,
+        points: [
+          {name: "Zurich", detail: "Sample local origin", lon: 8.54, lat: 47.38},
+          {name: city, detail: `Sample endpoint · ${ip}`, lon, lat}
+        ],
+        protocols: ["Sample connection metadata"],
+        steps: [[app, "sample app"], [city, "sample endpoint"]]
+      }));
+
+      let flows = location.protocol === "file:" ? demoFlows.slice() : [];
+
+      const continents = [
+        [[-168,72],[-153,69],[-141,60],[-132,55],[-126,49],[-124,42],[-117,32],[-108,25],[-97,19],[-87,18],[-82,25],[-80,31],[-75,38],[-67,45],[-60,51],[-64,58],[-78,62],[-92,68],[-112,72],[-137,71]],
+        [[-81,12],[-75,8],[-70,-2],[-68,-13],[-64,-23],[-60,-33],[-54,-43],[-48,-53],[-41,-47],[-38,-32],[-42,-18],[-49,-5],[-58,4],[-69,10]],
+        [[-53,83],[-30,81],[-20,73],[-31,61],[-45,60],[-58,69]],
+        [[-11,36],[-5,44],[4,50],[16,56],[29,60],[39,55],[52,57],[66,63],[89,72],[116,73],[141,66],[161,59],[177,51],[164,43],[146,43],[139,35],[126,32],[121,23],[107,18],[100,9],[89,8],[78,20],[69,25],[58,27],[48,36],[37,42],[28,41],[20,36],[12,37],[3,40]],
+        [[-17,35],[-6,37],[8,34],[19,30],[32,31],[41,18],[51,11],[47,-12],[39,-21],[31,-34],[18,-35],[9,-28],[1,-18],[-7,4],[-14,16]],
+        [[112,-11],[127,-13],[137,-18],[153,-27],[151,-39],[138,-44],[122,-35],[114,-24]],
+        [[46,-13],[50,-16],[49,-25],[44,-25],[43,-18]],
+        [[130,32],[139,36],[143,44],[141,50],[135,44]],
+        [[-8,50],[-2,51],[-4,58],[-8,58]],
+        [[166,-35],[178,-38],[176,-47],[168,-46]],
+        [[-180,-66],[-135,-72],[-90,-70],[-45,-75],[0,-72],[45,-75],[90,-70],[135,-73],[180,-67],[180,-86],[-180,-86]]
+      ];
+
+      const internalLines = [
+        [[-124,49],[-105,43],[-97,19]], [[-105,43],[-82,25]], [[-75,38],[-92,68]],
+        [[-70,-2],[-49,-5],[-42,-18]], [[-64,-23],[-38,-32]],
+        [[3,40],[20,36],[29,60]], [[37,42],[52,57],[69,25]], [[78,20],[100,9],[107,18]],
+        [[121,23],[139,35],[146,43]], [[8,34],[19,30],[31,-34]], [[-6,37],[1,-18]],
+        [[127,-13],[138,-44]], [[153,-27],[122,-35]]
+      ];
+
+      let selected = 0;
+      let evidencePointKey = null;
+      let hopSelection = null;
+      let showIntermediateHops = false;
+      let lastHopRenderKey = null;
+      let zoom = 1;
+      let tx = 0;
+      let ty = 0;
+      let paused = false;
+      let drag = null;
+      demoFlows.forEach(flow => {
+        flow.subtitle = flow.subtitle.replace("Zurich", originName);
+        const start = flow.points[0];
+        start.name = originName;
+        start.lon = fallbackOrigin.lon;
+        start.lat = fallbackOrigin.lat;
+      });
+      locationStatus.textContent = originLabel;
+
+      let packetRaf = 0;
+      let packetStart = performance.now();
+      let packetPhase = 0;
+      let packetSprites = [];
+      let hopPulses = [];
+      let routePace = null;
+      let routeSamples = [];
+      let routeLength = 0;
+      let luminous = true;
+      let constellation = true;
+      let constellationSprites = [];
+      let constellationGroups = new Map();
+      let constellationSelection = null;
+      const CONSTELLATION_LIMIT = 24;
+      const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+      let sourceMode = location.protocol === "file:" ? "simulation" : "live";
+      let collectorState = "connecting";
+      let lastSuccessfulPoll = null;
+      let collectorStatus = null;
+      let activeWindowSeconds = 10;
+      let latestRawFlows = [];
+      let latestLocalFlows = [];
+      let securitySummary = null;
+      let historyPreview = null;
+      const traceCache = new Map();
+      const traceOperations = new Map();
+
+      demoFlows.forEach(flow => {
+        const point = flow.points[0];
+        point.originFallback = { name: point.name, detail: point.detail, lon: point.lon, lat: point.lat };
+      });
+
+      function matchesActivity(flow, query = activitySearch.value) {
+        const normalized = query.trim().toLowerCase();
+        if (!normalized) return true;
+        return [
+          flow.name, flow.app, flow.target, flow.networkName,
+          ...(flow.protocols || []), ...(flow.remoteIPs || []), ...(flow.processes || [])
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized);
+      }
+
+      const project = ([lon, lat]) => [((lon + 180) / 360) * WIDTH, ((90 - lat) / 180) * HEIGHT];
+
+      function distanceKm(a, b) {
+        const toRadians = degrees => degrees * Math.PI / 180;
+        const dLat = toRadians(b.lat - a.lat);
+        const dLon = toRadians(b.lon - a.lon);
+        const lat1 = toRadians(a.lat);
+        const lat2 = toRadians(b.lat);
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+        return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      }
+
+      function svgEl(name, attrs = {}) {
+        const el = document.createElementNS(NS, name);
+        Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
+        return el;
+      }
+
+      function pointsAttr(points) { return points.map(project).map(p => p.join(",")).join(" "); }
+
+      function coordinatePath(coordinates, close = false) {
+        if (!coordinates?.length) return "";
+        const projected = coordinates.map(project);
+        return `${projected.map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(2)},${point[1].toFixed(2)}`).join(" ")}${close ? " Z" : ""}`;
+      }
+
+      function polygonPath(geometry) {
+        if (!geometry) return "";
+        const polygons = geometry.type === "Polygon"
+          ? [geometry.coordinates]
+          : geometry.type === "MultiPolygon" ? geometry.coordinates : [];
+        return polygons.flatMap(polygon => polygon.map(ring => coordinatePath(ring, true))).join(" ");
+      }
+
+      function linePath(geometry) {
+        if (!geometry) return "";
+        const lines = geometry.type === "LineString"
+          ? [geometry.coordinates]
+          : geometry.type === "MultiLineString" ? geometry.coordinates : [];
+        return lines.map(line => coordinatePath(line)).join(" ");
+      }
+
+      function countryTone(properties) {
+        const explicit = Number(properties?.MAPCOLOR7);
+        if (Number.isFinite(explicit) && explicit > 0) return (explicit - 1) % 7;
+        const name = properties?.ADMIN || properties?.NAME || "land";
+        let hash = 0;
+        for (const character of name) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+        return Math.abs(hash) % 7;
+      }
+
+      async function loadDetailedBasemap() {
+        try {
+          const files = [
+            "data/ne_50m_admin_0_countries.geojson",
+            "data/ne_50m_admin_1_states_provinces.geojson",
+            "data/ne_50m_lakes.geojson",
+            "data/ne_50m_rivers_lake_centerlines_scale_rank.geojson"
+          ];
+          const responses = await Promise.all(files.map(file => fetch(file, { cache: "force-cache" })));
+          if (responses.some(response => !response.ok)) throw new Error("Basemap files unavailable");
+          const [countries, states, lakes, rivers] = await Promise.all(responses.map(response => response.json()));
+
+          const countriesFragment = document.createDocumentFragment();
+          countries.features.forEach(feature => {
+            const path = svgEl("path", {
+              d: polygonPath(feature.geometry),
+              class: `land country-land tone-${countryTone(feature.properties)}`
+            });
+            countriesFragment.appendChild(path);
+          });
+
+          const statesFragment = document.createDocumentFragment();
+          states.features.forEach(feature => {
+            statesFragment.appendChild(svgEl("path", { d: polygonPath(feature.geometry), class: "state-boundary" }));
+          });
+
+          const lakesFragment = document.createDocumentFragment();
+          lakes.features.forEach(feature => {
+            lakesFragment.appendChild(svgEl("path", { d: polygonPath(feature.geometry), class: "lake-shape" }));
+          });
+
+          const riversFragment = document.createDocumentFragment();
+          rivers.features
+            .filter(feature => Number(feature.properties?.scalerank) <= 3)
+            .forEach(feature => {
+              riversFragment.appendChild(svgEl("path", { d: linePath(feature.geometry), class: "river-line" }));
+            });
+
+          landLayer.replaceChildren(countriesFragment);
+          stateLayer.replaceChildren(statesFragment);
+          waterLayer.replaceChildren(lakesFragment);
+          riverLayer.replaceChildren(riversFragment);
+          document.getElementById("mapDescription").textContent = "Connection metadata visualized on a Natural Earth basemap. Curves and moving dots are illustrative; traceroute probes provide hop order, and geographic positions are estimates.";
+        } catch {
+          /* keep the simplified world silhouette */
+        }
+      }
+
+      function renderWorld() {
+        for (let lon = -165; lon <= 165; lon += 15) {
+          const [x] = project([lon, 0]);
+          graticule.appendChild(svgEl("line", { x1: x, y1: 0, x2: x, y2: HEIGHT, class: lon % 30 === 0 ? "major" : "minor" }));
+        }
+        for (let lat = -75; lat <= 75; lat += 15) {
+          const [, y] = project([0, lat]);
+          const line = svgEl("line", { x1: 0, y1: y, x2: WIDTH, y2: y, class: lat === 0 ? "equator" : lat % 30 === 0 ? "major" : "minor" });
+          graticule.appendChild(line);
+        }
+        continents.forEach(points => landLayer.appendChild(svgEl("polygon", { points: pointsAttr(points), class: "land" })));
+        internalLines.forEach(points => landLayer.appendChild(svgEl("polyline", { points: pointsAttr(points), class: "country-line" })));
+        loadDetailedBasemap();
+      }
+
+      // Bow grows with the square of the span, so short traceroute hops stay
+      // almost straight while ocean crossings keep an arc. The bend is
+      // perpendicular to the chord and always toward the top of the map.
+      function arcOffset(a, b) {
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const length = Math.hypot(dx, dy);
+        if (!length) return [0, 0];
+        const lift = Math.min(64, length * length / 2400);
+        const side = dx < 0 ? -1 : 1;
+        return [side * dy / length * lift, -side * dx / length * lift];
+      }
+
+      function unit(x, y) {
+        const length = Math.hypot(x, y);
+        return length ? [x / length, y / length] : [0, 0];
+      }
+
+      // One cubic per span. Each span keeps its own arc, but both handles at a
+      // shared hop follow the averaged heading, so the stream bends through
+      // the hop instead of kinking. Handle lengths stay per span so a short
+      // metro hop cannot overshoot beside an ocean crossing. A two-point path
+      // is the plain arc, exactly.
+      function routeSegments(points) {
+        const projected = points.map(p => project([p.lon, p.lat]));
+        const arcs = projected.slice(1).map((b, i) => {
+          const a = projected[i];
+          const [ox, oy] = arcOffset(a, b);
+          return [(a[0] + b[0]) / 2 + ox, (a[1] + b[1]) / 2 + oy];
+        });
+        // Handles shrink as the route turns back on itself (cos of half the
+        // turn), so a U-turn stays a tight corner instead of swinging out into
+        // a loop, while gentle bends stay smooth.
+        const bends = projected.map((point, i) => {
+          const incoming = i > 0 ? unit(point[0] - arcs[i - 1][0], point[1] - arcs[i - 1][1]) : [0, 0];
+          const outgoing = i < arcs.length ? unit(arcs[i][0] - point[0], arcs[i][1] - point[1]) : [0, 0];
+          const x = incoming[0] + outgoing[0];
+          const y = incoming[1] + outgoing[1];
+          const turning = (incoming[0] || incoming[1]) && (outgoing[0] || outgoing[1]);
+          return { heading: unit(x, y), ease: turning ? Math.hypot(x, y) / 2 : 1 };
+        });
+        return arcs.map((arc, i) => {
+          const a = projected[i];
+          const b = projected[i + 1];
+          const leave = Math.hypot(arc[0] - a[0], arc[1] - a[1]) * 2 / 3 * bends[i].ease;
+          const arrive = Math.hypot(b[0] - arc[0], b[1] - arc[1]) * 2 / 3 * bends[i + 1].ease;
+          return [a,
+            [a[0] + bends[i].heading[0] * leave, a[1] + bends[i].heading[1] * leave],
+            [b[0] - bends[i + 1].heading[0] * arrive, b[1] - bends[i + 1].heading[1] * arrive],
+            b];
+        });
+      }
+
+      function segmentsPath(segments) {
+        const [start] = segments[0];
+        return `M ${start[0]} ${start[1]}` + segments
+          .map(([, c1, c2, b]) => ` C ${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${b[0]} ${b[1]}`).join("");
+      }
+
+      function curvePath(points) {
+        return segmentsPath(routeSegments(points));
+      }
+
+      function bezierPoint([a, c1, c2, b], t) {
+        const u = 1 - t;
+        return [0, 1].map(k => u * u * u * a[k] + 3 * u * u * t * c1[k] + 3 * u * t * t * c2[k] + t * t * t * b[k]);
+      }
+
+      function segmentLength(segment) {
+        let length = 0;
+        let previous = segment[0];
+        for (let i = 1; i <= 16; i++) {
+          const point = bezierPoint(segment, i / 16);
+          length += Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+          previous = point;
+        }
+        return length;
+      }
+
+      // Share of each loop a packet takes to reach every route point, paced by
+      // traceroute round-trip times; null keeps an even pace. A later reply
+      // bounds every earlier hop because its probe crossed them, so a running
+      // minimum from the end discards slow router replies. Silent hops spread
+      // their delay by distance, and the span past the last reply keeps the
+      // average pace rather than inventing a timing.
+      function probePacing(flow, lengths = routeSegments(flow.points).map(segmentLength)) {
+        const hops = flow.traceResult?.hops || [];
+        const last = flow.points.length - 1;
+        const rtts = flow.points.map((point, index) => {
+          if (index === 0) return 0;
+          const hop = index === last ? hops.find(item => item.reply && item.ip === flow.remoteIp)
+            : hops.find(item => item.index === point.hopIndex);
+          const rtt = hop?.reply && hop.rtt_ms != null ? Number(hop.rtt_ms) : NaN;
+          return Number.isFinite(rtt) ? rtt : null;
+        });
+        // Two replies beyond this Mac are the minimum for a timing comparison.
+        if (rtts.filter(rtt => rtt != null).length < 3) return null;
+        let bound = Infinity;
+        let lastKnown = 0;
+        for (let i = last; i >= 0; i--) {
+          if (rtts[i] == null) continue;
+          rtts[i] = bound = Math.min(bound, rtts[i]);
+          lastKnown = Math.max(lastKnown, i);
+        }
+        const reach = lengths.reduce((list, length) => [...list, list.at(-1) + length], [0]);
+        let previous = 0;
+        for (let i = 1; i < lastKnown; i++) {
+          if (rtts[i] != null) { previous = i; continue; }
+          let next = i + 1;
+          while (rtts[next] == null) next++;
+          const span = reach[next] - reach[previous];
+          rtts[i] = rtts[previous] + (rtts[next] - rtts[previous]) * (span ? (reach[i] - reach[previous]) / span : 0);
+        }
+        const total = reach.at(-1);
+        const knownReach = reach[lastKnown];
+        const delays = lengths.slice(0, lastKnown).map((_, i) => rtts[i + 1] - rtts[i]);
+        const totalDelay = delays.reduce((sum, delay) => sum + delay, 0);
+        if (!total || totalDelay <= 0) return null;
+        // A quarter of the pace follows distance, so spans that added no
+        // measurable delay still move instead of flashing past.
+        const byLength = .25;
+        const times = [0];
+        lengths.forEach((length, i) => {
+          const share = i < lastKnown
+            ? knownReach / total * ((1 - byLength) * delays[i] / totalDelay + byLength * (knownReach ? length / knownReach : 1 / lastKnown))
+            : length / total;
+          times.push(times.at(-1) + share);
+        });
+        return times;
+      }
+
+      // Maps a moment in the loop to the distance travelled along the route.
+      function paceDistance(t) {
+        if (!routePace) return t;
+        const { times, reach } = routePace;
+        let i = 1;
+        while (i < times.length - 1 && times[i] <= t) i++;
+        const span = times[i] - times[i - 1];
+        return reach[i - 1] + (reach[i] - reach[i - 1]) * (span ? Math.max(0, Math.min(1, (t - times[i - 1]) / span)) : 1);
+      }
+
+      function updateScreenFixedDetails() {
+        const inverseZoom = 1 / zoom;
+        constellationLayer.querySelectorAll("[data-screen-fixed]").forEach(element => {
+          const x = Number(element.getAttribute("data-anchor-x"));
+          const y = Number(element.getAttribute("data-anchor-y"));
+          element.setAttribute("transform", `translate(${x} ${y}) scale(${inverseZoom})`);
+        });
+        constellationLayer.querySelectorAll(".constellation-pulse").forEach(dot => dot.setAttribute("r", 1.7 * inverseZoom));
+        routeLayer.querySelectorAll("[data-screen-fixed]").forEach(element => {
+          const x = Number(element.getAttribute("data-anchor-x"));
+          const y = Number(element.getAttribute("data-anchor-y"));
+          element.setAttribute("transform", `translate(${x} ${y}) scale(${inverseZoom})`);
+        });
+        routeLayer.querySelectorAll(".packet").forEach(packet => {
+          packet.setAttribute("r", Number(packet.getAttribute("data-base-radius")) * inverseZoom);
+        });
+
+        const placed = [];
+        const markers = [...routeLayer.querySelectorAll(".node-marker")]
+          .filter(marker => marker.querySelector(".node-label"))
+          .sort((a, b) => Number(b.getAttribute("data-label-priority")) - Number(a.getAttribute("data-label-priority")));
+        const detailsVisible = zoom >= 6;
+        markers.forEach(marker => {
+          const label = marker.querySelector(".node-label");
+          const detail = marker.querySelector(".node-detail");
+          const anchorX = tx + Number(marker.getAttribute("data-anchor-x")) * zoom;
+          const anchorY = ty + Number(marker.getAttribute("data-anchor-y")) * zoom;
+          const labelWidth = Math.max(56, label.textContent.length * 7.1);
+          const detailWidth = detailsVisible && detail ? Math.max(70, detail.textContent.length * 5.2) : 0;
+          const width = Math.min(390, Math.max(labelWidth, detailWidth));
+          const height = detailsVisible && detail ? 31 : 18;
+          const clearance = luminous && marker.getAttribute("data-endpoint") === "true" ? 34 : 11;
+          const candidates = [
+            [clearance, -8],
+            [clearance, 24],
+            [-width - clearance, -8],
+            [-width - clearance, 24],
+            [-width / 2, -27],
+            [-width / 2, 42],
+            [11, 55],
+            [-width - 11, 55]
+          ];
+          let best = null;
+          candidates.forEach(([dx, dy]) => {
+            const box = {
+              left: anchorX + dx - 4,
+              right: anchorX + dx + width + 4,
+              top: anchorY + dy - 14,
+              bottom: anchorY + dy - 14 + height
+            };
+            let score = 0;
+            placed.forEach(other => {
+              const overlapWidth = Math.max(0, Math.min(box.right, other.right) - Math.max(box.left, other.left));
+              const overlapHeight = Math.max(0, Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top));
+              score += overlapWidth * overlapHeight;
+            });
+            score += Math.max(0, 8 - box.left) * 40;
+            score += Math.max(0, box.right - WIDTH + 8) * 40;
+            score += Math.max(0, 8 - box.top) * 40;
+            score += Math.max(0, box.bottom - HEIGHT + 8) * 40;
+            if (!best || score < best.score) best = { dx, dy, box, score };
+          });
+          label.setAttribute("x", best.dx);
+          label.setAttribute("y", best.dy);
+          if (detail) {
+            detail.setAttribute("x", best.dx);
+            detail.setAttribute("y", best.dy + 13);
+          }
+          placed.push(best.box);
+        });
+      }
+
+      function chooseConstellationStream(id) {
+        const index = flows.findIndex(flow => flow.id === id && matchesActivity(flow) && !flow.historical && (!flow.live || flow.active));
+        if (index < 0) return;
+        constellationSelection = null;
+        selectFlow(index);
+      }
+
+      function renderConstellationPicker() {
+        const picker = document.getElementById("constellationPicker");
+        const group = constellationGroups.get(constellationSelection);
+        picker.hidden = !group;
+        const choices = document.getElementById("constellationChoices");
+        const focusedId = document.activeElement?.getAttribute("data-stream-choice");
+        choices.replaceChildren();
+        if (!group) { constellationSelection = null; return; }
+        group.forEach(flow => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "constellation-choice";
+          button.setAttribute("data-stream-choice", flow.id);
+          button.textContent = `${flow.live ? flow.name : `${flow.app} · ${flow.name}`}${flow.id === flows[selected]?.id ? " · selected" : ""}`;
+          const endpoint = document.createElement("small");
+          endpoint.textContent = flow.live ? `${flow.remoteIp}:${flow.remotePort} · ${flow.points.at(-1).approximate ? "estimated location" : "location unavailable"}` : `${flow.target} · sample location`;
+          button.appendChild(endpoint);
+          button.addEventListener("click", () => chooseConstellationStream(flow.id));
+          choices.appendChild(button);
+          if (focusedId === flow.id) button.focus?.({preventScroll: true});
+        });
+      }
+
+      function activateConstellation(key) {
+        const group = constellationGroups.get(key);
+        if (!group) return;
+        if (group.length === 1) { chooseConstellationStream(group[0].id); return; }
+        constellationSelection = key;
+        renderConstellationPicker();
+        document.getElementById("constellationChoices").querySelector("button")?.focus?.();
+      }
+
+      function renderConstellation() {
+        const focusedKey = document.activeElement?.getAttribute("data-constellation-key");
+        constellationLayer.replaceChildren();
+        constellationSprites = [];
+        constellationGroups = new Map();
+        const status = document.getElementById("constellationStatus");
+        const focus = flows[selected];
+        const candidates = flows.filter(flow => matchesActivity(flow) && !flow.historical && (!flow.live || flow.active));
+        // Sort by stable identity so polling order cannot flicker the capped subset.
+        candidates.sort((a, b) => a.id === focus?.id ? -1 : b.id === focus?.id ? 1 : a.id.localeCompare(b.id));
+        const visible = constellation && !focus?.historical ? candidates.slice(0, CONSTELLATION_LIMIT) : [];
+        status.textContent = !constellation ? "Selected connection only" : focus?.historical ? "Historical focus · overview hidden"
+          : !candidates.length ? "No matching active streams" : `${visible.length} of ${candidates.length} ${sourceMode === "simulation" ? "sample" : "active"} streams · ${candidates.length > CONSTELLATION_LIMIT ? "filter to narrow" : "approximate map placement"}`;
+        document.getElementById("constellationButton").textContent = constellation ? "◎ Constellation" : "◎ Focus view";
+        visible.forEach(flow => {
+          const originPoint = flow.points[0];
+          const endpoint = flow.points.at(-1);
+          const key = `${endpoint.lon},${endpoint.lat}`;
+          if (!constellationGroups.has(key)) constellationGroups.set(key, []);
+          constellationGroups.get(key).push(flow);
+          if (flow.id === focus?.id) return;
+          const d = curvePath([originPoint, endpoint]);
+          const path = svgEl("path", {d, class: "constellation-link", "data-stream-id": flow.id, "aria-hidden": "true"});
+          constellationLayer.append(svgEl("path", {d, class: "constellation-bloom luminous-detail", "aria-hidden": "true"}), path);
+          const total = path.getTotalLength();
+          const samples = Array.from({length: 81}, (_, i) => path.getPointAtLength(total * i / 80));
+          const dot = svgEl("circle", {r: 1.7 / zoom, class: "constellation-pulse", "aria-hidden": "true"});
+          constellationLayer.appendChild(dot);
+          const offset = [...flow.id].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 100 / 100;
+          constellationSprites.push({dot, samples, offset});
+        });
+        constellationGroups.forEach((group, key) => {
+          if (group.length === 1 && group[0].id === focus?.id) return;
+          const endpoint = group[0].points.at(-1);
+          const [x, y] = project([endpoint.lon, endpoint.lat]);
+          const selectedEndpoint = focus?.points.at(-1);
+          const selectedPosition = selectedEndpoint && project([selectedEndpoint.lon, selectedEndpoint.lat]);
+          const originPosition = focus && project([focus.points[0].lon, focus.points[0].lat]);
+          const offset = [selectedPosition, originPosition].some(position => position && Math.hypot(x - position[0], y - position[1]) * zoom < 35) ? 38 : 0;
+          const label = group.length > 1 ? `${group.length} streams` : group[0].app;
+          const marker = svgEl("g", {class: "constellation-node", role: "button", tabindex: "0",
+            "data-constellation-key": key, "data-screen-fixed": "true", "data-anchor-x": x, "data-anchor-y": y,
+            "aria-label": `${label} · ${endpoint.name} · ${group[0].live ? endpoint.approximate ? "estimated location" : "visual anchor" : "sample location"} · select stream`});
+          if (offset) marker.appendChild(svgEl("line", {x1: 0, y1: 8, x2: 0, y2: offset - 10, class: "constellation-leader", "aria-hidden": "true"}));
+          marker.appendChild(svgEl("circle", {cx: 0, cy: offset, r: 15, fill: "transparent"}));
+          marker.appendChild(svgEl("circle", {cx: 0, cy: offset, r: group.length > 1 ? 9 : 5, class: "constellation-ring"}));
+          if (group.length > 1) {
+            const count = svgEl("text", {x: 0, y: offset + 3.5, "text-anchor": "middle"});
+            count.textContent = String(group.length);
+            marker.appendChild(count);
+          }
+          // Keep the hidden hover label outside the button's SVG bounds so
+          // pointer and accessibility activation both target the endpoint.
+          const text = svgEl("text", {x: 16, y: offset + 4, class: "constellation-label", "aria-hidden": "true",
+            "data-screen-fixed": "true", "data-anchor-x": x, "data-anchor-y": y});
+          text.textContent = label.length > 32 ? label.slice(0, 29) + "…" : label;
+          marker.addEventListener("click", event => { event.stopPropagation(); if (!event.detail) activateConstellation(key); });
+          marker.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); activateConstellation(key); }
+          });
+          constellationLayer.append(marker, text);
+          if (focusedKey === key) marker.focus?.({preventScroll: true});
+        });
+        renderConstellationPicker();
+      }
+
+      function renderRoute() {
+        const focusedKey = document.activeElement?.getAttribute("data-point-key");
+        cancelAnimationFrame(packetRaf);
+        packetSprites = [];
+        hopPulses = [];
+        routePace = null;
+        routeSamples = [];
+        routeLayer.replaceChildren();
+        renderConstellation();
+        const flow = flows[selected];
+        const showHops = showIntermediateHops || traceEnabled(flow);
+        mapShell.classList.toggle("show-intermediate-hops", showHops);
+        mapShell.classList.toggle("selected-recent", !flow || Boolean(flow.historical) || (flow.live && !flow.active));
+        if (!flow) { updateScreenFixedDetails(); animatePackets(performance.now()); return; }
+        const traced = Boolean(flow.traceResult?.hops?.length);
+        const historical = Boolean(flow.historical);
+        const animated = !historical && (!flow.live || flow.active);
+        const intensity = Number(flow.streamIntensity || 1);
+        const lineWidth = Math.min(6.4, 3.2 * intensity);
+        const glowWidth = Math.min(24, 13 * intensity);
+        routeLayer.style.setProperty("--stream-width", `${lineWidth}px`);
+        routeLayer.style.setProperty("--glow-width", `${glowWidth}px`);
+        const [originX, originY] = project([flow.points[0].lon, flow.points[0].lat]);
+        const endpoint = flow.points[flow.points.length - 1];
+        const [endpointX, endpointY] = project([endpoint.lon, endpoint.lat]);
+        const luminousGradient = document.getElementById("luminousGradient");
+        Object.entries({x1: originX, y1: originY, x2: endpointX, y2: endpointY})
+          .forEach(([name, value]) => luminousGradient.setAttribute(name, value));
+        const segments = routeSegments(flow.points);
+        const d = segmentsPath(segments);
+        // Where packets reach each point, as a share of the route length.
+        const segmentLengths = segments.map(segmentLength);
+        const routeTotal = segmentLengths.reduce((sum, length) => sum + length, 0) || 1;
+        const arrivals = segmentLengths.reduce((list, length) => [...list, list.at(-1) + length / routeTotal], [0]);
+        const pacing = traced ? probePacing(flow, segmentLengths) : null;
+        if (pacing) routePace = { times: pacing, reach: arrivals };
+        const base = svgEl("path", { d, class: "route-base", id: "activeRoute" });
+        if (animated) {
+          const glow = svgEl("path", { d, class: "route-glow", "stroke-width": glowWidth.toFixed(1) });
+          routeLayer.append(base, glow);
+        } else {
+          routeLayer.appendChild(base);
+        }
+        if (historical) {
+          routeLayer.appendChild(svgEl("path", { d, class: "route-line inferred-segment" }));
+        } else if (traced) {
+          // Probe order stays on the map, but a live connection keeps one
+          // moving stream. Straight chords and frozen silent hops read as a
+          // dead diagram; the curve is still only an illustration.
+          routeLayer.appendChild(svgEl("path", {
+            d, class: "route-line", "stroke-width": lineWidth.toFixed(1)
+          }));
+          for (let i = 0; i < flow.points.length - 1; i++) {
+            const silent = flow.points[i].reply === false || flow.points[i + 1].reply === false;
+            if (!silent) continue;
+            routeLayer.appendChild(svgEl("path", {
+              d: segmentsPath([segments[i]]),
+              class: "route-line inferred-segment traced-flow"
+            }));
+          }
+        } else {
+          routeLayer.appendChild(svgEl("path", { d, class: "route-line inferred-segment", "stroke-width": lineWidth.toFixed(1) }));
+        }
+
+        flow.points.forEach((point, index) => {
+          const [x, y] = project([point.lon, point.lat]);
+          const isIntermediate = index > 0 && index < flow.points.length - 1;
+          if (isIntermediate && !showHops) return;
+          const classNames = ["node-marker"];
+          if (index === 0) classNames.push("origin-node");
+          if (isIntermediate) classNames.push("hop-detail");
+          if (point.reply === false) classNames.push("inferred-hop");
+          const node = svgEl("g", {
+            class: classNames.join(" "),
+            role: "button", tabindex: "0",
+            "aria-label": `${point.name} · inspect details`,
+            "data-point-key": pointEvidenceKey(point),
+            "aria-pressed": String(Boolean(hopSelection && pointEvidenceKey(point) === evidencePointKey)),
+            "data-screen-fixed": "true",
+            "data-endpoint": String(!isIntermediate),
+            "data-anchor-x": x,
+            "data-anchor-y": y,
+            "data-label-priority": isIntermediate ? 1 : index === flow.points.length - 1 ? 3 : 2
+          });
+          node.setAttribute("aria-description", point.detail);
+          if (!isIntermediate) node.appendChild(svgEl("path", {
+            d: "M -14 -25 H -25 V -14 M 14 -25 H 25 V -14 M -25 14 V 25 H -14 M 25 14 V 25 H 14",
+            class: `endpoint-frame luminous-detail${index === 0 ? " origin" : ""}`, "aria-hidden": "true"
+          }));
+          if (point.approximate) node.appendChild(svgEl("circle", { cx: 0, cy: 0, r: 19, class: "geo-estimate-ring" }));
+          if (point.currentLocation) node.appendChild(svgEl("circle", { cx: 0, cy: 0, r: 21, class: "device-location-ring" }));
+          const haloRadius = index === 0 || index === flow.points.length - 1 ? 13 : point.reply === false ? 6 : 9;
+          if (animated && isIntermediate) {
+            const ring = svgEl("circle", { cx: 0, cy: 0, r: haloRadius, class: "hop-pulse", "aria-hidden": "true" });
+            node.appendChild(ring);
+            hopPulses.push({ ring, radius: haloRadius, at: (pacing || arrivals)[index] });
+          }
+          node.appendChild(svgEl("circle", { cx: 0, cy: 0, r: haloRadius, class: "node-halo" }));
+          node.appendChild(svgEl("circle", { cx: 0, cy: 0, r: index === 0 || index === flow.points.length - 1 ? 3.1 : point.reply === false ? 1.5 : 2.2, class: "node-core" }));
+          const showLabel = !isIntermediate || point.showLabel;
+          if (showLabel) {
+            const label = svgEl("text", { x: 10, y: -8, class: "node-label" });
+            label.textContent = point.name;
+            node.appendChild(label);
+            const detail = svgEl("text", { x: 10, y: 5, class: "node-detail city-detail" });
+            detail.textContent = point.shortDetail || point.detail;
+            node.appendChild(detail);
+          }
+          node.addEventListener("click", event => {
+            event.stopPropagation();
+            // Pointer taps are handled by the map's gesture logic. Keep
+            // synthesized accessibility clicks working without a pointer.
+            if (!event.detail) focusPoint(point);
+          });
+          node.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              focusPoint(point);
+            }
+          });
+          routeLayer.appendChild(node);
+          if (focusedKey === pointEvidenceKey(point)) node.focus?.({ preventScroll: true });
+        });
+
+        flow.protocols.forEach((protocol, i) => {
+          const segmentIndex = traced ? Math.max(0, Math.floor((flow.points.length - 1) / 2)) : i;
+          const midpoint = bezierPoint(segments[segmentIndex], .5);
+          const width = Math.max(84, protocol.length * 5.7 + 15);
+          const chip = svgEl("g", {
+            class: "protocol-chip",
+            "data-screen-fixed": "true",
+            "data-anchor-x": midpoint[0] - width / 2,
+            "data-anchor-y": midpoint[1] - 11
+          });
+          chip.appendChild(svgEl("rect", { width, height: 22, rx: 7 }));
+          const text = svgEl("text", { x: width / 2, y: 14, "text-anchor": "middle" });
+          text.textContent = protocol;
+          chip.appendChild(text);
+          routeLayer.appendChild(chip);
+        });
+
+        if (animated) {
+          const packetGroup = svgEl("g", { id: "packetGroup" });
+          const packetCount = Math.min(9, 4 + Math.ceil(Math.log2(Number(flow.socketCount || 1) + 1)));
+          for (let i = 0; i < packetCount; i++) {
+            const radius = (i === 0 ? 3.1 : 2.1) * Math.min(1.45, Math.sqrt(intensity));
+            const trail = svgEl("path", { class: "packet-trail luminous-detail", "aria-hidden": "true" });
+            const dot = svgEl("circle", { r: radius, class: "packet", "data-offset": String(i / packetCount), "data-base-radius": radius, "aria-hidden": "true" });
+            packetGroup.append(trail, dot);
+            packetSprites.push({ dot, trail, offset: i / packetCount });
+          }
+          routeLayer.appendChild(packetGroup);
+          // Sample geometry once per render; animation interpolates cached
+          // points instead of querying SVG path geometry on every frame.
+          routeLength = base.getTotalLength();
+          for (let i = 0; i <= 320; i++) routeSamples.push(base.getPointAtLength(routeLength * i / 320));
+        }
+        updateScreenFixedDetails();
+        animatePackets(performance.now());
+      }
+
+      function routePosition(t, samples = routeSamples) {
+        const index = Math.max(0, Math.min(1, t)) * (samples.length - 1);
+        const low = Math.floor(index);
+        const a = samples[low];
+        const b = samples[Math.min(low + 1, samples.length - 1)];
+        const mix = index - low;
+        return { x: a.x + (b.x - a.x) * mix, y: a.y + (b.y - a.y) * mix };
+      }
+
+      function animatePackets(now) {
+        if (!packetSprites.length && !constellationSprites.length) return;
+        const moving = !paused && !motionPreference.matches && !document.hidden;
+        if (moving) packetPhase = ((now - packetStart) / 4200) % 1;
+        constellationSprites.forEach(({dot, samples, offset}) => {
+          const t = (packetPhase + offset) % 1;
+          const p = routePosition(t, samples);
+          dot.setAttribute("cx", p.x);
+          dot.setAttribute("cy", p.y);
+          dot.style.opacity = String(.2 + .5 * Math.sin(Math.PI * t));
+        });
+        packetSprites.forEach(({dot, trail, offset}) => {
+          const t = (packetPhase + offset) % 1;
+          const p = routePosition(paceDistance(t));
+          dot.setAttribute("cx", p.x);
+          dot.setAttribute("cy", p.y);
+          dot.style.opacity = String(.28 + .72 * Math.sin(Math.PI * t));
+          if (luminous) {
+            // The trail spans a fixed slice of time, so it stretches into a
+            // streak on fast spans and shrinks where the packet slows down.
+            const tail = Math.min(t, 28 / Math.max(1, routeLength * zoom));
+            const points = Array.from({length: 5}, (_, i) => routePosition(paceDistance(t - tail * (1 - i / 4))));
+            trail.setAttribute("d", points.map((point, i) => `${i ? "L" : "M"} ${point.x} ${point.y}`).join(" "));
+            trail.style.opacity = String(.18 + .35 * Math.sin(Math.PI * t));
+          }
+        });
+        hopPulses.forEach(({ring, radius, at}) => {
+          // A ring flares as a packet reaches the hop and spreads as it fades.
+          // Still frames keep it dark so a paused map shows no frozen ripple.
+          const since = moving ? Math.min(...packetSprites.map(({offset}) => ((packetPhase + offset - at) % 1 + 1) % 1)) : 1;
+          const glow = Math.max(0, 1 - since / .09);
+          ring.setAttribute("r", (radius + 12 * (1 - glow)).toFixed(2));
+          ring.style.opacity = (.9 * glow * glow).toFixed(3);
+        });
+        if (moving) packetRaf = requestAnimationFrame(animatePackets);
+      }
+
+      function restartPacketAnimation() {
+        cancelAnimationFrame(packetRaf);
+        packetStart = performance.now() - packetPhase * 4200;
+        animatePackets(performance.now());
+      }
+      motionPreference.addEventListener("change", restartPacketAnimation);
+      document.addEventListener("visibilitychange", restartPacketAnimation);
+
+      function compareNewestConnection(left, right) {
+        // Only a later start time moves a row. Equal or missing times keep the
+        // collector's order so a routine poll does not reshuffle the list.
+        return Number(right.firstSeen || 0) - Number(left.firstSeen || 0);
+      }
+
+      function renderActivities() {
+        // Polls rebuild the list; keep keyboard focus on the same connection.
+        const focusedFlowId = document.activeElement?.closest?.("#activityList")
+          ? document.activeElement.getAttribute("data-flow-id") : null;
+        activityList.replaceChildren();
+        const visible = flows.map((flow, index) => ({ flow, index })).filter(item => matchesActivity(item.flow));
+        if (!visible.length) {
+          const empty = document.createElement("div");
+          empty.className = "activity-empty";
+          empty.textContent = activitySearch.value.trim()
+            ? `No connections match “${activitySearch.value.trim()}” yet. Keep the app open and generate some activity.`
+            : "No active connections are visible yet.";
+          activityList.appendChild(empty);
+          return;
+        }
+        visible.forEach(({ flow, index }) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          const operation = traceOperations.get(flow.id);
+          const enabled = traceEnabled(flow);
+          button.className = `activity${index === selected ? " active" : ""}${operation || enabled ? " tracing" : ""}`;
+          button.setAttribute("aria-pressed", String(index === selected));
+          button.setAttribute("data-flow-id", flow.id);
+          const timing = flow.latencyText || `${flow.latency} ms`;
+          const icon = document.createElement("span");
+          icon.className = "activity-icon";
+          icon.textContent = flow.icon;
+          const main = document.createElement("span");
+          main.className = "activity-main";
+          const name = document.createElement("span");
+          name.className = "activity-name";
+          name.textContent = flow.name;
+          name.title = flow.name;
+          const target = document.createElement("span");
+          target.className = "activity-target";
+          target.textContent = `${flow.app} · ${flow.target}`;
+          const latency = document.createElement("span");
+          latency.className = "activity-latency";
+          latency.textContent = timing;
+          main.append(name, target);
+          if (operation || enabled) {
+            const badge = document.createElement("span");
+            badge.className = "trace-badge";
+            badge.textContent = !operation ? "Trace enabled" : operation.phase === "starting" ? "Starting trace…" : operation.phase === "stopping" ? "Stopping trace…" : operation.message ? "Trace status unavailable" : "Calculating route…";
+            main.appendChild(badge);
+          }
+          button.append(icon, main, latency);
+          button.addEventListener("click", () => selectFlow(index));
+          activityList.appendChild(button);
+          if (focusedFlowId === flow.id) button.focus?.({ preventScroll: true });
+        });
+      }
+
+      function pointEvidenceKey(point) {
+        return point.hopIndex != null ? `hop:${point.hopIndex}` : point.ip || point.name;
+      }
+
+      function resetHopSelection() {
+        hopSelection = null;
+        evidencePointKey = null;
+        document.getElementById("hopConnectionContext").open = false;
+        document.getElementById("hopEvidenceSources").open = false;
+      }
+
+      function renderHopInspector() {
+        const flow = flows[selected];
+        const panel = document.getElementById("hopInspector");
+        const point = flow?.points.find(item => pointEvidenceKey(item) === evidencePointKey);
+        const hops = flow?.traceResult?.hops || [];
+        const hop = hops.find(item => item.index === hopSelection?.index);
+        if (hopSelection && (!point || hopSelection.flowId !== flow?.id || hopSelection.target !== flow?.remoteIp
+          || (hopSelection.index != null && (!hop || hop.ip !== hopSelection.ip || flow.traceResult?.started_at !== hopSelection.startedAt)))) resetHopSelection();
+        panel.hidden = !hopSelection;
+        if (!hopSelection) return;
+        const sample = !flow.live && !flow.historical;
+        const local = point === flow.points[0];
+        const silent = hop?.reply === false;
+        const network = silent ? null : hop?.network_reference || point.networkReference;
+        const asn = silent ? null : hop?.asn || point.asn;
+        const owner = network?.organization || asn?.organization || network?.name;
+        const number = network?.as_number || asn?.number;
+        const facts = [];
+        const sources = [];
+        const ip = silent ? "Unknown · no reply" : local ? flow.localEndpoint || "Not retained" : hop?.ip || point.ip || "Not recorded";
+        facts.push([local ? "Local socket" : "IP address", ip]);
+        if (!sample && !local && !silent && hop?.hostname) {
+          facts.push(["Reverse DNS", `${hop.hostname} · resolver answer, not proof of the router or service`]);
+        }
+        facts.push(["Network identity", sample ? "Illustrative sample identity" : local ? "This Mac" : silent ? "Unknown · no reply"
+          : [network?.service_class ? network.label : owner, number ? `AS${number}` : "", evidenceTag(network)].filter(Boolean).join(" · ")
+            || "Unknown · no ownership record"]);
+        if (!sample && !local && !silent && network?.service_class === "hosted") {
+          facts.push(["Hosting", `Runs on ${network.tag}. Owner unknown.`]);
+        }
+        sources.push(["Identity evidence", sample ? "Illustrative sample data" : local ? "Local socket metadata" : silent ? "No reply; no identity available" : `${network?.source || (asn ? "Offline DB-IP ASN Lite" : "No network source available")}. Network ownership does not identify a router, person, or application.`]);
+        const geography = sample ? `${point.name} · illustrative sample location`
+          : local ? origin.active ? "Browser device-location estimate" : "Time-zone estimate · visual origin"
+          : silent ? "Unknown · no reply; map position is illustrative"
+          : point.rejectedGeo ? "City estimate withheld by timing check · map position is illustrative"
+          : point.geoEstimateLabel ? `${point.geoEstimateLabel} · city unverified${network?.anycast ? "; anycast serving site unknown" : ""}`
+          : "Unknown · map position is illustrative";
+        facts.push(["Geographic location", geography]);
+        sources.push(["Location source", sample ? "Illustrative sample data" : local ? origin.active ? "Browser Location Services" : "Mac time zone" : !silent && point.geoEstimateLabel ? `Offline DB-IP City Lite${collectorStatus?.geoip_database ? ` · ${collectorStatus.geoip_database}` : ""} · estimate only` : "No usable location record"]);
+        facts.push(["Probe round-trip time", sample ? "Illustrative sample timing" : Number.isFinite(hop?.rtt_ms) ? `${hop.rtt_ms.toFixed(1)} ms · round trip from this Mac` : silent ? "No reply" : "Not measured for this selection"]);
+        document.getElementById("hopInspectorTitle").textContent = hop ? `Hop ${hop.index} · ${silent ? "No response" : "Responding"}` : local ? "This Mac · connection origin" : sample ? `${point.name} · sample` : "Destination · connection endpoint";
+        document.getElementById("hopInspectorStatus").textContent = sample ? "Simulation · illustrative data"
+          : `${flow.historical ? "Historical observation" : collectorState === "live" && flow.active ? "Selected connection is active" : "Retained observation · connection not confirmed live"}${hop ? " · traceroute snapshot" : ""}`;
+        const context = [];
+        const neighbor = item => item ? `Hop ${item.index} · ${item.reply ? item.ip || "IP unavailable" : "no response; identity unknown"}` : "Not observed";
+        const offset = hops.indexOf(hop);
+        context.push(["Previous probe step", hop ? offset > 0 ? neighbor(hops[offset - 1]) : "This Mac · probe origin" : "Select a traced hop to inspect probe order"]);
+        context.push(["Next probe step", hop ? neighbor(hops[offset + 1]) : "Select a traced hop to inspect probe order"]);
+        context.push(["Selected connection", sample ? "Illustrative example" : `${flow.application || flow.app} → ${flow.remoteIp}${flow.remotePort ? ` · port ${flow.remotePort}` : ""}`]);
+        context.push(["Application transport", sample ? "Sample protocols" : `${flow.protocol || "Not recorded"} · socket metadata; application payload and encryption are not inspected`]);
+        context.push(["Probe protocol", sample ? "No probe sent" : "Traceroute probe transport is not recorded; it is separate from the application's transport"]);
+        const sockets = (flow.sockets || []).filter(socket => socket.remote_ip === flow.remoteIp);
+        const identities = [...new Set(sockets.map(socket => [socket.process, socket.pid != null ? `PID ${socket.pid}` : "", socket.interface].filter(Boolean).join(" · ")).filter(Boolean))];
+        context.push(["Local process / interface", sample ? "Illustrative example" : identities.join("; ") || "Not retained for this endpoint"]);
+        for (const [label, field] of [["Received by this Mac", "bytes_in"], ["Sent by this Mac", "bytes_out"]]) {
+          const observed = sockets.filter(socket => socket[field] != null && Number.isFinite(Number(socket[field])));
+          context.push([label, observed.length ? `${formatBytes(observed.reduce((sum, socket) => sum + Number(socket[field]), 0))} · ${observed.length}/${sockets.length} endpoint sockets reporting; socket counters, not router traffic` : "Unavailable · router traffic is not measured"]);
+        }
+        function fill(id, entries) {
+          const list = document.getElementById(id);
+          list.replaceChildren();
+          entries.forEach(([label, value]) => {
+            const term = document.createElement("dt"); term.textContent = label;
+            const description = document.createElement("dd"); description.textContent = value;
+            list.append(term, description);
+          });
+        }
+        fill("hopInspectorFacts", facts);
+        fill("hopConnectionFacts", context);
+        fill("hopSourceFacts", sources);
+      }
+
+      function renderHopDisclosure() {
+        const flow = flows[selected];
+        const sample = flow && !flow.live && !flow.historical;
+        const points = flow?.points.slice(1, -1) || [];
+        const trace = flow?.traceResult;
+        const hops = trace?.hops || [];
+        const rows = sample ? points.map((point, index) => ({
+          index: index + 1, status: "Sample hop", detail: point.name + " · illustrative location", point
+        })) : hops.map(hop => {
+          const point = flow.points.find(item => item.hopIndex === hop.index)
+            || (hop.reply && hop.ip === flow.remoteIp ? flow.points.at(-1) : null);
+          const located = Boolean(hop.geo?.city && point?.approximate && !point?.rejectedGeo);
+          const status = !hop.reply ? "No response" : located ? "Responding" : "Unlocated";
+          const timing = Number.isFinite(hop.rtt_ms) ? `${hop.rtt_ms.toFixed(1)} ms` : "RTT unavailable";
+          const position = point?.rejectedGeo ? "city estimate withheld" : located ? hop.geo.city : "";
+          return {
+            index: hop.index, status,
+            detail: hop.reply ? `${hop.hostname ? `${hop.hostname} · ` : ""}${hop.ip || "IP unavailable"} · ${timing}${position ? ` · ${position}` : ""}${hop.ip === flow.remoteIp ? " · destination reply" : ""}` : "Router identity and location unknown",
+            point
+          };
+        });
+        document.getElementById("hopDisclosureLabel").textContent = showIntermediateHops ? "Hide hop details" : "Show hop details";
+        document.getElementById("hopCountBadge").textContent = rows.length ? `${rows.length} ${sample ? "sample" : "probe steps"}` : "";
+        document.getElementById("hopDisclosureStatus").textContent = !flow ? "Select a connection to inspect its hops."
+          : sample ? "Illustrative example hops, not traceroute observations."
+          : traceOperations.get(flow.id)?.message || (traceOperations.has(flow.id) ? `Probing ${traceOperations.get(flow.id).target}…` : "") || (flow.tracePending ? "Probing the selected endpoint…" : "")
+          || (trace?.status === "cancelled" ? "Route tracing stopped. The map shows connection endpoints; choose Trace route for a fresh probe." : "")
+          || (rows.length ? `Probe order below includes the destination reply when available.${trace.error ? " Partial result: some probe data is unavailable." : ""}${probePacing(flow) ? " Moving dots slow down where probe round-trip times grew. Routers answer probes at low priority, so the pace is a rough guide, not this connection's latency." : ""} Enabled trace markers stay on the map when these details are collapsed; labels stay selective.`
+          : trace?.status === "error" ? "The route probe failed. No hop identities can be inferred from this result."
+          : trace ? "The probe returned no hop data. No hidden routers can be identified from this result."
+          : "Run Trace route to discover responding hops and unanswered probe steps. Expanding this panel does not send probes.");
+        const traceButton = document.getElementById("hopTraceButton");
+        renderTraceButton(traceButton, flow);
+        const signature = JSON.stringify([flow?.id, flow?.remoteIp, rows.map(row => [row.index, row.status, row.detail])]);
+        if (signature === lastHopRenderKey) return;
+        lastHopRenderKey = signature;
+        const list = document.getElementById("hopList");
+        list.replaceChildren();
+        rows.forEach(row => {
+          const item = document.createElement("li");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "hop-row";
+          const label = document.createElement("strong");
+          label.textContent = `Hop ${row.index} · ${row.status}`;
+          const detail = document.createElement("span");
+          detail.textContent = row.detail;
+          button.append(label, detail);
+          button.disabled = !row.point;
+          button.addEventListener("click", () => {
+            const current = flows[selected]?.points.find(point => point.hopIndex === row.index)
+              || (sample ? flows[selected]?.points[row.index] : flows[selected]?.points.at(-1));
+            if (current) {
+              focusPoint(current, sample ? null : row.index);
+            }
+          });
+          item.appendChild(button);
+          list.appendChild(item);
+        });
+      }
+
+      function renderMapExplanation() {
+        renderHopInspector();
+        renderHopDisclosure();
+        const flow = flows[selected];
+        const point = flow?.points.find(item => pointEvidenceKey(item) === evidencePointKey) || flow?.points.at(-1);
+        const badge = document.getElementById("cityEvidenceBadge");
+        const title = document.getElementById("cityEvidenceTitle");
+        const text = document.getElementById("cityEvidenceText");
+        const source = document.getElementById("cityEvidenceSource");
+        const trace = document.getElementById("cityTraceEvidence");
+        title.textContent = point ? `Location evidence · ${point.name}` : "City evidence";
+        badge.textContent = "City unverified";
+        source.textContent = "";
+        trace.textContent = "";
+        if (!flow) {
+          badge.textContent = "No selection";
+          text.textContent = "Select a connection to inspect the evidence behind its position.";
+          return;
+        }
+        if (!flow.live && !flow.historical) {
+          badge.textContent = "Sample locations";
+          text.textContent = "This is a simulation. Cities, hops, and timing are illustrative examples.";
+          return;
+        }
+        if (point === flow.points[0]) {
+          badge.textContent = origin.active ? "Device estimate" : "Origin estimate";
+          text.textContent = origin.active ? "Your browser supplied this device-location estimate with your permission." : "The origin is an approximate visual anchor derived from the Mac’s time zone.";
+        } else if (point?.rejectedGeo) {
+          badge.textContent = "Estimate withheld";
+          text.textContent = `The offline estimate${point.geoEstimateLabel ? ` (${point.geoEstimateLabel})` : ""} did not pass the timing plausibility check. Its city position is withheld; the marker position is for display only.`;
+        } else if (point?.networkReference?.anycast) {
+          text.textContent = `This address belongs to an anycast network. The same address can be served from multiple sites.${point.geoEstimateLabel ? ` GeoIP suggests ${point.geoEstimateLabel}, but that does not identify the site handling this connection.` : " The serving city is unknown."}`;
+        } else if (point?.approximate) {
+          text.textContent = `Offline GeoIP suggests ${point.geoEstimateLabel || point.name}. This is an IP-location estimate, not verification of a physical server or city.`;
+        } else {
+          text.textContent = "No usable city estimate is available. This marker is a visual anchor; its position is not an observed location.";
+        }
+        if (point?.geoEstimateLabel) source.textContent = `Source: offline DB-IP City Lite${collectorStatus?.geoip_database ? ` · ${collectorStatus.geoip_database}` : ""}.`;
+        const withheld = (flow.points || []).filter(item => item.rejectedGeo).length;
+        trace.textContent = flow.traceResult?.hops?.length
+          ? `Traceroute supplies probe order and round-trip times. The timing check can flag implausible hop estimates; passing it never verifies a city.${withheld ? ` ${withheld} hop estimate(s) withheld.` : ""}`
+          : "A requested traceroute can add hop order and timing, but cannot verify a city.";
+      }
+
+      function renderText() {
+        renderMapExplanation();
+        const flow = flows[selected];
+        if (!flow) {
+          document.getElementById("selectedTitle").textContent = activitySearch.value.trim() ? "No matching connections" : collectorState === "connecting" ? "Connecting to collector…" : "No recent connections";
+          document.getElementById("selectedSubtitle").textContent = collectorState === "live"
+            ? "No connection metadata is currently visible."
+            : "Waiting for fresh local connection metadata.";
+          document.getElementById("traceName").textContent = "Select a connection to inspect its metadata";
+          document.getElementById("traceTime").textContent = "—";
+          document.getElementById("traceSteps").replaceChildren();
+          socketList.replaceChildren();
+          socketDetails.hidden = true;
+          traceRouteButton.hidden = true;
+          return;
+        }
+        document.getElementById("selectedTitle").textContent = flow.name;
+        document.getElementById("selectedSubtitle").textContent = flow.subtitle;
+        document.getElementById("traceName").textContent = `${flow.app.toLowerCase()} → ${flow.target}`;
+        document.getElementById("traceTime").textContent = flow.latencyText || `${flow.latency} ms`;
+        renderTraceButton(traceRouteButton, flow);
+        const steps = document.getElementById("traceSteps");
+        steps.replaceChildren();
+        flow.steps.forEach(step => {
+          const el = document.createElement("div");
+          el.className = "trace-step";
+          const marker = document.createElement("i");
+          const label = document.createElement("b");
+          label.textContent = step[0];
+          const detail = document.createElement("span");
+          detail.textContent = step[1];
+          el.append(marker, label, detail);
+          steps.appendChild(el);
+        });
+        const sockets = flow.sockets || [];
+        socketDetails.hidden = !flow.live || !sockets.length;
+        socketSummary.textContent = `${sockets.length} underlying socket${sockets.length === 1 ? "" : "s"}`;
+        socketList.replaceChildren();
+        sockets.forEach(socket => {
+          const row = document.createElement("div");
+          row.className = "socket-row";
+          const process = document.createElement("b");
+          process.textContent = `${socket.process || flow.app}${socket.pid ? ` · ${socket.pid}` : ""}`;
+          const endpoint = document.createElement("span");
+          endpoint.textContent = `${socket.remote_ip || "unknown"}:${socket.remote_port || "?"} · ${socket.active ? "active" : "last seen " + relativeTime(socket.last_seen)}`;
+          const telemetry = document.createElement("em");
+          telemetry.textContent = socket.rtt_ms != null && Number.isFinite(Number(socket.rtt_ms))
+            ? `${Number(socket.rtt_ms).toFixed(1)} ms`
+            : `↓${formatBytes(socket.bytes_in)} ↑${formatBytes(socket.bytes_out)}`;
+          row.append(process, endpoint, telemetry);
+          socketList.appendChild(row);
+        });
+      }
+
+      function selectFlow(index) {
+        constellationSelection = null;
+        document.getElementById("mapExplanation").open = false;
+        showIntermediateHops = false;
+        mapShell.classList.remove("show-intermediate-hops");
+        resetHopSelection();
+        selected = index;
+        socketDetails.open = false;
+        frameSelectedRoute();
+        renderActivities();
+        renderText();
+        renderRoute();
+        updateTransform();
+      }
+
+      function addressHash(ip) {
+        let hash = 0;
+        for (const character of ip) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+        return hash;
+      }
+
+      function placeholderPoint(ip) {
+        const hash = addressHash(ip);
+        return { lon: -34 + (Math.abs(hash) % 18), lat: 26 + (Math.abs(hash >> 5) % 15) };
+      }
+
+      // A display position about 250 km from `from`, in a direction fixed per
+      // address so withheld endpoints do not stack. Near, because the round
+      // trip says so; the exact spot claims nothing.
+      function besidePoint(from, ip) {
+        const angle = (Math.abs(addressHash(ip)) % 360) * Math.PI / 180;
+        return { lon: from.lon + Math.cos(angle) * 2.5, lat: from.lat + Math.sin(angle) * 2.5 };
+      }
+
+      // The database city failed a timing check: keep the owner, drop the
+      // city from the labels, and move the marker to a display position.
+      function withholdEndpointCity(endpoint, position) {
+        const withheld = endpoint.geoEstimateLabel;
+        const owner = endpoint.networkReference?.label || endpoint.networkReference?.name || endpoint.ip || "Endpoint";
+        if (withheld && String(endpoint.name || "").startsWith(withheld.split(",")[0])) endpoint.name = owner;
+        Object.assign(endpoint, {
+          lon: position.lon,
+          lat: Math.max(-75, Math.min(75, position.lat)),
+          approximate: false,
+          rejectedGeo: true,
+          shortDetail: `${owner} · city withheld`,
+          detail: `${endpoint.ip || "Endpoint"} · ${withheld || "location"} withheld: inconsistent with round-trip time`,
+        });
+      }
+
+      // One-word evidence level plus its source: a provider's own published
+      // list ("Reference") or the offline ownership database ("Inferred").
+      function evidenceTag(network) {
+        if (!network) return "";
+        if (network.confidence !== "reference") return "Inferred · ownership lookup";
+        const published = Date.parse(network.source_published || "");
+        const days = Number.isFinite(published) ? Math.max(0, Math.floor((Date.now() - published) / 86400000)) : null;
+        const age = days == null ? "" : ` · ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} old`}`;
+        return `Reference · ${network.source_name || network.name} list${age}${network.stale ? " (stale)" : ""}`;
+      }
+
+      function formatBytes(value) {
+        if (value == null || !Number.isFinite(Number(value))) return "metadata";
+        const bytes = Number(value);
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      }
+
+      function formatAccuracy(meters) {
+        if (!Number.isFinite(Number(meters))) return "accuracy unavailable";
+        const value = Number(meters);
+        if (value < 1000) return `±${Math.max(10, Math.round(value / 10) * 10)} m`;
+        return `±${(value / 1000).toFixed(value < 10000 ? 1 : 0)} km`;
+      }
+
+      function formatCoordinates(lat, lon) {
+        const latitude = `${Math.abs(lat).toFixed(4)}° ${lat >= 0 ? "N" : "S"}`;
+        const longitude = `${Math.abs(lon).toFixed(4)}° ${lon >= 0 ? "E" : "W"}`;
+        return `${latitude}, ${longitude}`;
+      }
+
+      function updateFlowOrigin(flow) {
+        const point = flow.points?.[0];
+        if (!point) return;
+        if (!point.originFallback) {
+          point.originFallback = {
+            name: flow.live ? "This Mac" : point.name,
+            detail: flow.localEndpoint || point.detail,
+            lon: fallbackOrigin.lon,
+            lat: fallbackOrigin.lat
+          };
+        }
+        if (origin.active) {
+          point.name = "Current location";
+          point.detail = `${formatCoordinates(origin.lat, origin.lon)} · ${formatAccuracy(origin.accuracy)}${flow.localEndpoint ? ` · ${flow.localEndpoint}` : ""}`;
+          point.shortDetail = `${formatCoordinates(origin.lat, origin.lon)} · ${formatAccuracy(origin.accuracy)}`;
+          point.lon = origin.lon;
+          point.lat = origin.lat;
+          point.currentLocation = true;
+          flow.subtitle = flow.subtitle.replace(`${originName} →`, "Current location →");
+        } else {
+          Object.assign(point, point.originFallback);
+          point.shortDetail = flow.localEndpoint || point.detail;
+          point.currentLocation = false;
+          flow.subtitle = flow.subtitle.replace("Current location →", `${originName} →`);
+        }
+      }
+
+      function refreshOriginOnMap() {
+        const uniqueFlows = new Set([...demoFlows, ...latestLocalFlows, ...flows]);
+        uniqueFlows.forEach(updateFlowOrigin);
+        if (flows.length) {
+          renderActivities();
+          renderText();
+          renderRoute();
+          updateTransform();
+        }
+      }
+
+      function stopLocationTracking(message = originLabel) {
+        if (locationWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(locationWatchId);
+        locationWatchId = null;
+        origin = { ...fallbackOrigin, active: false, accuracy: null };
+        locationButton.disabled = false;
+        locationButton.classList.remove("active");
+        locationButton.setAttribute("aria-pressed", "false");
+        locationButton.textContent = "⌖ Use Mac location";
+        locationStatus.textContent = message;
+        refreshOriginOnMap();
+      }
+
+      function handleLocation(position) {
+        origin = {
+          active: true,
+          lon: Number(position.coords.longitude),
+          lat: Number(position.coords.latitude),
+          accuracy: Number(position.coords.accuracy)
+        };
+        locationButton.disabled = false;
+        locationButton.classList.add("active");
+        locationButton.setAttribute("aria-pressed", "true");
+        locationButton.textContent = "⌖ Location active";
+        locationStatus.textContent = `Mac Location Services · ${formatAccuracy(origin.accuracy)} · click to stop`;
+        refreshOriginOnMap();
+      }
+
+      function handleLocationError(error) {
+        const messages = {
+          1: "Location permission was not granted",
+          2: "Mac location is temporarily unavailable",
+          3: "Mac location request timed out"
+        };
+        stopLocationTracking(messages[error.code] || "Unable to read Mac location");
+      }
+
+      function toggleLocationTracking() {
+        if (origin.active || locationWatchId != null) {
+          stopLocationTracking();
+          return;
+        }
+        if (!navigator.geolocation) {
+          locationStatus.textContent = "This browser does not provide Location Services";
+          return;
+        }
+        locationButton.disabled = true;
+        locationButton.textContent = "⌖ Requesting location…";
+        locationStatus.textContent = "Approve the macOS/browser location prompt";
+        locationWatchId = navigator.geolocation.watchPosition(handleLocation, handleLocationError, {
+          enableHighAccuracy: false,
+          maximumAge: 30000,
+          timeout: 15000
+        });
+      }
+
+      function liveFlowToDisplay(flow) {
+        const geo = flow.geo;
+        const network = flow.network_reference;
+        const socketCount = Math.max(1, Number(flow.socket_count || 1));
+        const remoteIpCount = Math.max(1, Number(flow.remote_ip_count || 1));
+        const application = flow.process || "Unknown app";
+        const socketLabel = `${socketCount} socket${socketCount === 1 ? "" : "s"}`;
+        const endpointLabel = `${remoteIpCount} endpoint${remoteIpCount === 1 ? "" : "s"}`;
+        const anchor = geo
+          ? { lon: Number(geo.longitude), lat: Number(geo.latitude) }
+          : placeholderPoint(flow.remote_ip);
+        const locationParts = geo ? [geo.city, geo.subdivision, geo.country].filter(Boolean) : [];
+        const locationLabel = locationParts.length ? locationParts.join(", ") : flow.remote_ip;
+        const endpointName = network?.label || geo?.city || geo?.country || flow.remote_ip;
+        const now = Date.now() / 1000;
+        const sockets = (flow.sockets || []).map(socket => ({
+          ...socket,
+          active: collectorState === "live" && now - Number(socket.last_seen || 0) <= activeWindowSeconds
+        }));
+        const activeSocketCount = sockets.length
+          ? sockets.filter(socket => socket.active).length
+          : collectorState === "live" && now - Number(flow.last_seen || 0) <= activeWindowSeconds ? socketCount : 0;
+        const active = activeSocketCount > 0;
+        const hasRtt = flow.rtt_ms != null && Number.isFinite(Number(flow.rtt_ms));
+        // The fastest socket to this exact address bounds how far away it can
+        // be. A group's average may mix addresses, so it only stands in when
+        // the collector sent no socket rows for a single address.
+        const socketRtts = sockets
+          .filter(socket => socket.remote_ip === flow.remote_ip && socket.rtt_ms != null)
+          .map(socket => Number(socket.rtt_ms)).filter(Number.isFinite);
+        const connectionRttMs = socketRtts.length ? Math.min(...socketRtts)
+          : !sockets.length && remoteIpCount === 1 && hasRtt ? Number(flow.rtt_ms) : NaN;
+        const geoWithheld = Boolean(geo) && !withinRoundTrip(origin, anchor, connectionRttMs);
+        const locationNote = geoWithheld ? `${locationLabel} withheld: inconsistent with round-trip time` : null;
+        const interfaceDetail = flow.interface
+          ? flow.interface.startsWith("utun") ? "VPN tunnel" : "network interface"
+          : (flow.interfaces || []).length > 1 ? `${flow.interfaces.length} interfaces` : String(flow.local_port);
+        const providerDetail = network
+          ? `${network.category}${network.as_number ? ` · AS${network.as_number}` : ""}`
+          : "service inferred from port";
+        const displayFlow = {
+          id: flow.id,
+          application,
+          protocol: flow.protocol,
+          remotePort: flow.remote_port,
+          traceFlowId: flow.trace_flow_id || flow.id,
+          icon: flow.service === "HTTPS" ? "↗" : flow.service === "QUIC" ? "◉" : "◎",
+          name: network ? `${application} via ${network.name}` : `${application} · ${flow.service}`,
+          app: `${application} · ${socketLabel}`,
+          target: network ? `${network.label} · ${flow.protocol} ${flow.remote_port}` : `${flow.remote_ip}:${flow.remote_port}`,
+          remoteIp: flow.remote_ip,
+          remoteIPs: flow.remote_ips || [flow.remote_ip],
+          networkName: [network?.name, network?.organization, network?.as_number ? `AS${network.as_number}` : ""].filter(Boolean).join(" "),
+          processes: flow.processes || [application],
+          sockets,
+          active,
+          activeSocketCount,
+          lastSeen: flow.last_seen,
+          socketCount,
+          remoteIpCount,
+          connectionRttMs,
+          grouping: flow.grouping || "endpoint",
+          streamIntensity: Math.min(3.4, 1 + Math.log2(Math.max(1, activeSocketCount)) * .42),
+          latency: 0,
+          latencyText: active ? (hasRtt ? `${Math.round(Number(flow.rtt_ms))} ms` : "ACTIVE") : "RECENT",
+          firstSeen: Number(flow.first_seen || 0),
+          subtitle: network
+            ? `${flow.interface ? `${flow.interface} · ` : ""}${origin.active ? "Current location" : originName} → ${network.label} · ${socketLabel} / ${endpointLabel}${geo ? ` · ${locationNote || `${locationLabel} estimate only`}` : " · physical location unverified"}`
+            : geo
+            ? `${flow.interface ? `${flow.interface} · ` : ""}${origin.active ? "Current location" : originName} → ${geoWithheld ? flow.remote_ip : locationLabel} · ${socketLabel} / ${endpointLabel} · ${locationNote || "offline estimate"}`
+            : `${flow.interface ? `${flow.interface} · ` : ""}${origin.active ? "Current location" : originName} → ${flow.remote_ip} · ${socketLabel} / ${endpointLabel} · location pending`,
+          live: true,
+          localEndpoint: `${flow.local_ip}:${flow.local_port}`,
+          points: [
+            {
+              name: origin.active ? "Current location" : "This Mac",
+              detail: origin.active
+                ? `${formatCoordinates(origin.lat, origin.lon)} · ${formatAccuracy(origin.accuracy)} · ${flow.local_ip}:${flow.local_port}`
+                : `${flow.local_ip}:${flow.local_port}`,
+              shortDetail: origin.active
+                ? `${formatCoordinates(origin.lat, origin.lon)} · ${formatAccuracy(origin.accuracy)}`
+                : `${flow.local_ip}:${flow.local_port}`,
+              lon: origin.lon,
+              lat: origin.lat,
+              currentLocation: origin.active,
+              originFallback: { name: "This Mac", detail: `${flow.local_ip}:${flow.local_port}`, ...fallbackOrigin }
+            },
+            {
+              name: endpointName,
+              geoEstimateLabel: geo ? locationLabel : null,
+              ip: flow.remote_ip,
+              detail: network
+                ? `${flow.remote_ip} · ${network.label} · ${network.category}${geo ? ` · ${locationLabel}` : ""} · ${evidenceTag(network)}`
+                : geo ? `${flow.remote_ip} · ${locationLabel}` : "Unlocated endpoint · visual anchor only",
+              shortDetail: network
+                ? `${network.service_class ? network.label : `${network.name}${network.anycast ? " anycast" : " network"}`}${geo ? ` · ${geo.city || geo.country || locationLabel}` : ""}`
+                : geo ? `${flow.remote_ip} · ${geo.city || locationLabel}` : flow.remote_ip,
+              lon: anchor.lon,
+              lat: anchor.lat,
+              approximate: Boolean(geo),
+              networkReference: network,
+              asn: flow.asn
+            }
+          ],
+          protocols: [`${flow.protocol} ${flow.remote_port} · ${socketLabel}`],
+          steps: [
+            [application, interfaceDetail],
+            [network?.name || flow.service, providerDetail],
+            [flow.protocol, hasRtt ? `${Number(flow.rtt_ms).toFixed(1)} ms` : "observed transport"],
+            [socketLabel, endpointLabel]
+          ]
+        };
+        if (geoWithheld) withholdEndpointCity(displayFlow.points[1], besidePoint(origin, flow.remote_ip));
+        const cachedTrace = traceCache.get(flow.id);
+        if (cachedTrace && cachedTrace.target === flow.remote_ip) applyTraceToFlow(displayFlow, cachedTrace);
+        displayFlow.subtitle += ` · ${active ? `${activeSocketCount} active / ${socketCount} recent sockets` : `not currently observed · last seen ${relativeTime(flow.last_seen)}`}`;
+        return displayFlow;
+      }
+
+      function historicalFindingToDisplay(finding) {
+        const evidence = finding.evidence || {};
+        const geo = evidence.geo;
+        const network = evidence.network_reference;
+        const remoteIp = evidence.remote_ip || "Unknown destination";
+        const remotePort = Number(evidence.remote_port || 0);
+        const protocol = evidence.protocol || "Network";
+        const service = evidence.service || protocol;
+        const anchor = geo
+          ? { lon: Number(geo.longitude), lat: Number(geo.latitude) }
+          : placeholderPoint(remoteIp);
+        const locationParts = geo ? [geo.city, geo.subdivision, geo.country].filter(Boolean) : [];
+        const locationLabel = locationParts.length ? locationParts.join(", ") : "location unavailable";
+        const endpointName = network?.label || geo?.city || geo?.country || remoteIp;
+        return {
+          id: `history-${finding.id}`,
+          icon: "◷",
+          name: `Historical ${service} connection`,
+          app: evidence.process || "Unknown app",
+          target: evidence.destination || `${remoteIp}:${remotePort}`,
+          remoteIp,
+          protocol,
+          remotePort,
+          networkName: network?.name || "",
+          latency: 0,
+          latencyText: "PAST",
+          subtitle: `Historical observation · ${network ? `${network.label} · ` : ""}${geo ? `${locationLabel} offline estimate` : "geography unavailable"} · not currently live`,
+          historical: true,
+          live: false,
+          points: [
+            {
+              name: origin.active ? "Current location" : "This Mac",
+              detail: origin.active
+                ? `${formatCoordinates(origin.lat, origin.lon)} · historical connection origin`
+                : "Historical local origin · exact address not retained",
+              shortDetail: "Historical local origin",
+              lon: origin.lon,
+              lat: origin.lat,
+              currentLocation: origin.active,
+              originFallback: { name: "This Mac", detail: "Historical local origin · exact address not retained", ...fallbackOrigin }
+            },
+            {
+              name: endpointName,
+              geoEstimateLabel: geo ? locationLabel : null,
+              ip: remoteIp,
+              detail: network
+                ? `${remoteIp} · ${network.label} · ${network.category}${geo ? ` · ${locationLabel}` : " · location unavailable"}`
+                : `${remoteIp} · ${geo ? locationLabel : "location unavailable"}`,
+              shortDetail: network
+                ? `${network.name} edge${geo ? ` · ${geo.city || geo.country || locationLabel}` : ""}`
+                : geo ? `${remoteIp} · ${locationLabel}` : remoteIp,
+              lon: anchor.lon,
+              lat: anchor.lat,
+              approximate: Boolean(geo),
+              networkReference: network,
+              asn: evidence.asn
+            }
+          ],
+          protocols: [`${protocol}${remotePort ? ` ${remotePort}` : ""} · historical metadata`],
+          steps: [
+            [evidence.process || "Unknown app", "process"],
+            ["Local history", "recorded"],
+            [protocol, evidence.network || "network unavailable"],
+            [endpointName, geo ? "estimated location" : "destination"]
+          ]
+        };
+      }
+
+      // How far this Mac may really be from its origin marker. A location fix
+      // is precise, a time-zone city can be a zone's width away, and a region
+      // fallback or unknown zone says too little to rule anything out.
+      function originUncertaintyKm() {
+        if (origin.active) return Number(origin.accuracy || 0) / 1000;
+        if (TIMEZONE_ORIGINS[originEstimate.zone]) return 2000;
+        return REGION_ORIGINS[originEstimate.zone.split("/")[0]] ? 4000 : Infinity;
+      }
+
+      // Light in fiber covers about 100 km per millisecond of round trip (150
+      // leaves headroom), give or take the origin marker's own uncertainty.
+      function withinRoundTrip(from, geoPoint, rtt) {
+        return !Number.isFinite(rtt) || distanceKm(from, geoPoint) <= Math.max(800, rtt * 150) + originUncertaintyKm();
+      }
+
+      function applyTraceToFlow(flow, trace) {
+        flow.traceResult = trace;
+        flow.tracePending = trace.status === "running";
+        if (!trace.hops?.length) {
+          // A retrace without results must not retain the previous probe's hops.
+          flow.points = [flow.points[0], flow.points.at(-1)];
+          flow.protocols = [`${flow.protocol || "Network"} ${flow.remotePort || ""} · metadata`];
+          flow.steps = [[flow.application || flow.app, "process"], ["Route probe", flow.tracePending ? "waiting for replies" : "no hop data"]];
+          flow.subtitle = trace.status === "cancelled" ? "Route tracing stopped · trace view disabled."
+            : trace.error ? `Route probe unavailable · ${trace.error}`
+            : flow.tracePending ? "Probing the selected endpoint…" : "Route probe returned no hop data.";
+          return flow;
+        }
+
+        const source = flow.points[0];
+        const endpoint = flow.points[flow.points.length - 1];
+        // A VPN or slow first mile adds the same latency to every hop, which would
+        // make any city on Earth look "plausible". Judge each hop by how much it
+        // adds beyond the fastest replying hop, not by its absolute RTT.
+        const replyRtts = trace.hops
+          .filter(hop => hop.reply && hop.rtt_ms != null)
+          .map(hop => Number(hop.rtt_ms))
+          .filter(Number.isFinite);
+        const baselineRtt = replyRtts.length ? Math.min(...replyRtts) : 0;
+        // Absolute timing still bounds every reply from this Mac. The
+        // connection's own round trip caps each hop on the way too, even when
+        // the destination ignores probes. A VPN passes both, because a distant
+        // exit adds matching delay.
+        const originSlack = originUncertaintyKm();
+        const connectionRtt = trace.target === flow.remoteIp ? flow.connectionRttMs : NaN;
+        const reachable = (geoPoint, rtt) => withinRoundTrip(source, geoPoint, rtt) && withinRoundTrip(source, geoPoint, connectionRtt);
+        const geoOf = hop => ({ lon: Number(hop.geo.longitude), lat: Number(hop.geo.latitude) });
+        // The origin marker may be the offline time-zone estimate rather than
+        // the user's real position, and over a VPN the exit city is the
+        // trustworthy reference point. Anchor the distance budget at the fastest
+        // located hop that this Mac could have reached in time, and never reject
+        // that anchor. Global networks reuse address blocks worldwide, so a fast
+        // router can carry a database city a continent away; trusting it would
+        // withhold every correct city around it.
+        const baselineHop = trace.hops
+          .filter(hop => hop.reply && hop.geo && hop.rtt_ms != null && reachable(geoOf(hop), Number(hop.rtt_ms)))
+          .sort((a, b) => Number(a.rtt_ms) - Number(b.rtt_ms))[0] || null;
+        const anchor = baselineHop ? geoOf(baselineHop) : source;
+        const anchorSlack = baselineHop ? 0 : originSlack;
+        const withinBudget = (geoPoint, rtt) => {
+          if (!geoPoint || !reachable(geoPoint, rtt)) return false;
+          const beyond = Number.isFinite(rtt) ? Math.max(0, rtt - baselineRtt) : NaN;
+          if (!Number.isFinite(beyond)) return true;
+          return distanceKm(anchor, geoPoint) <= Math.max(800, beyond * 150) + anchorSlack;
+        };
+        const hopPoints = trace.hops
+          .filter(hop => hop.ip !== endpoint.ip)
+          .map(hop => {
+            const hopNetwork = hop.network_reference;
+            const rawLocation = hop.geo
+              ? [hop.geo.city, hop.geo.subdivision, hop.geo.country].filter(Boolean).join(", ")
+              : null;
+            const geoPoint = hop.geo
+              ? { lon: Number(hop.geo.longitude), lat: Number(hop.geo.latitude) }
+              : null;
+            const rtt = hop.rtt_ms == null ? NaN : Number(hop.rtt_ms);
+            const geoPlausible = Boolean(geoPoint) && (hop === baselineHop || withinBudget(geoPoint, rtt));
+            const hopLocation = geoPlausible ? rawLocation : null;
+            const hopCity = hopLocation ? hop.geo.city || hop.geo.country : null;
+            const owner = hopNetwork?.label || null;
+            const rttText = hop.rtt_ms == null ? "RTT unavailable" : `${hop.rtt_ms.toFixed(1)} ms`;
+            return {
+              // Lead the map label with the city estimate when one passed the
+              // timing check, and keep the network owner in the detail line.
+              // Silent or unlocated hops fall back to the owner or address.
+              name: hopCity || owner || hop.hostname || hop.ip || `Hop ${hop.index} · no reply`,
+              ip: hop.ip,
+              hopIndex: hop.index,
+              reply: Boolean(hop.reply),
+              showLabel: false,
+              detail: hop.reply
+                ? `Hop ${hop.index} · ${hop.hostname ? `${hop.hostname} · ` : ""}${hop.ip} · ${rttText} · ${[owner, hopLocation].filter(Boolean).join(" · ") || (rawLocation ? `${rawLocation} withheld: inconsistent with RTT` : "location pending")}`
+                : `Hop ${hop.index} · router did not reply`,
+              shortDetail: hop.reply
+                ? `Hop ${hop.index} · ${hop.hostname || hopNetwork?.name || hop.ip} · ${rttText}`
+                : `Hop ${hop.index} · no reply`,
+              lon: geoPlausible ? geoPoint.lon : null,
+              lat: geoPlausible ? geoPoint.lat : null,
+              approximate: geoPlausible,
+              networkReference: hopNetwork,
+              geoEstimateLabel: rawLocation,
+              rejectedGeo: Boolean(rawLocation) && !geoPlausible
+            };
+          });
+
+        const destinationHop = trace.hops.find(hop => hop.reply && hop.ip === endpoint.ip);
+        const endpointRtt = destinationHop?.rtt_ms == null ? NaN : Number(destinationHop.rtt_ms);
+        const endpointGeo = !endpoint.rejectedGeo && Number.isFinite(Number(endpoint.lon)) && Number.isFinite(Number(endpoint.lat))
+          ? { lon: Number(endpoint.lon), lat: Number(endpoint.lat) } : null;
+        if (endpoint.rejectedGeo || (endpointGeo && !withinBudget(endpointGeo, endpointRtt))) {
+          // The database city failed the same timing check as any other hop,
+          // or the connection's own round trip. With the city unknown, the
+          // marker sits just past the last credible hop; a longer step would
+          // point at a place the data never showed.
+          const located = [source, ...hopPoints].filter(point => Number.isFinite(point.lon) && Number.isFinite(point.lat));
+          const last = located.at(-1) || source;
+          const before = located.at(-2) || last;
+          let dLon = last.lon - before.lon;
+          let dLat = last.lat - before.lat;
+          if (Math.hypot(dLon, dLat) < 0.05) { dLon = 3; dLat = -1; }
+          const step = 0.35 / Math.hypot(dLon, dLat);
+          withholdEndpointCity(endpoint, { lon: last.lon + dLon * step, lat: last.lat + dLat * step });
+        }
+
+        const routePoints = [source, ...hopPoints, endpoint];
+        routePoints.forEach((point, index) => {
+          if (Number.isFinite(point.lon) && Number.isFinite(point.lat)) return;
+          let previousIndex = index - 1;
+          let nextIndex = index + 1;
+          while (previousIndex > 0 && !Number.isFinite(routePoints[previousIndex].lon)) previousIndex--;
+          while (nextIndex < routePoints.length - 1 && !Number.isFinite(routePoints[nextIndex].lon)) nextIndex++;
+          const previous = routePoints[previousIndex];
+          const next = routePoints[nextIndex];
+          const t = (index - previousIndex) / (nextIndex - previousIndex);
+          point.lon = previous.lon + (next.lon - previous.lon) * t;
+          point.lat = previous.lat + (next.lat - previous.lat) * t;
+        });
+
+        const endpointKey = `${Number(endpoint.lon).toFixed(2)},${Number(endpoint.lat).toFixed(2)}`;
+        const firstReplyIndex = hopPoints.find(point => point.reply)?.hopIndex;
+        const labelledLocations = new Set();
+        hopPoints.forEach(point => {
+          if (!point.reply) return;
+          const locationKey = point.approximate ? `${Number(point.lon).toFixed(2)},${Number(point.lat).toFixed(2)}` : null;
+          if (point.hopIndex === firstReplyIndex) {
+            if (!point.approximate) point.name = `Hop ${point.hopIndex}`;
+            point.showLabel = true;
+            if (locationKey) labelledLocations.add(locationKey);
+            return;
+          }
+          if (locationKey && locationKey !== endpointKey && !labelledLocations.has(locationKey)) {
+            point.showLabel = true;
+            labelledLocations.add(locationKey);
+          }
+        });
+
+        flow.points = routePoints;
+        flow.protocols = ["TRACEROUTE · probe results"];
+        const replies = trace.hops.filter(hop => hop.reply).length;
+        const endpointParts = [];
+        if (endpoint.networkReference?.label) endpointParts.push(endpoint.networkReference.label);
+        if (endpoint.geoEstimateLabel) {
+          endpointParts.push(endpoint.rejectedGeo
+            ? `${endpoint.geoEstimateLabel} withheld: inconsistent with round-trip time`
+            : `${endpoint.geoEstimateLabel} · estimate`);
+        }
+        if (!endpointParts.length) endpointParts.push(endpoint.approximate ? `${endpoint.name} offline estimate` : "geography pending");
+        flow.subtitle = `${trace.hops.length} probe hops · ${replies} answered · ${endpointParts.join(" · ")}`;
+        if (trace.status === "cancelled") flow.subtitle = `Route tracing stopped · partial results · ${flow.subtitle}`;
+        const firstReply = trace.hops.find(hop => hop.reply);
+        flow.steps = [
+          [flow.app.split(" · ")[0], "process"],
+          [firstReply?.ip || "Gateway", firstReply?.rtt_ms == null ? "first hop" : `${firstReply.rtt_ms.toFixed(1)} ms`],
+          ["Transit", `${Math.max(0, trace.hops.length - 2)} hops`],
+          [endpoint.name, trace.hops.some(hop => hop.reply && hop.ip === endpoint.ip) ? "endpoint replied" : "endpoint not confirmed"]
+        ];
+        return flow;
+      }
+
+      function traceEnabled(flow) {
+        return Boolean(flow?.live && flow.traceResult?.target === flow.remoteIp
+          && ["running", "complete"].includes(flow.traceResult.status));
+      }
+
+      function renderTraceButton(button, flow) {
+        const operation = flow && traceOperations.get(flow.id);
+        const enabled = traceEnabled(flow);
+        button.hidden = !operation && !enabled && (!flow?.live || !flow.active || collectorState !== "live");
+        button.disabled = Boolean(operation && operation.phase !== "running");
+        button.textContent = operation ? operation.phase === "starting" ? "Starting trace…" : operation.phase === "stopping" ? "Stopping…" : "Stop tracing route"
+          : enabled ? "Stop tracing route" : flow?.traceResult?.status === "error" ? "Retry trace" : "Trace route";
+        button.title = operation ? `Probe target: ${operation.target}` : "Shortcut: T";
+      }
+
+      function showTraceResult(displayFlowId, result) {
+        traceCache.set(displayFlowId, result);
+        const flow = flows.find(item => item.id === displayFlowId);
+        if (flow && result.target === flow.remoteIp) applyTraceToFlow(flow, result);
+        renderActivities();
+        renderText();
+        renderRoute();
+      }
+
+      async function toggleTrace() {
+        if (traceOperations.has(flows[selected]?.id) || traceEnabled(flows[selected])) await stopTrace();
+        else await startTrace();
+      }
+
+      async function traceRequest(path, method = "GET") {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 6500);
+        try {
+          const response = await fetch(path, { method, cache: "no-store", signal: controller.signal });
+          return { response, result: await response.json() };
+        } finally {
+          window.clearTimeout(timer);
+        }
+      }
+
+      async function startTrace() {
+        const flow = flows[selected];
+        if (!flow?.live || !flow.active || collectorState !== "live" || traceOperations.has(flow.id)) return;
+        const traceFlowId = flow.traceFlowId || flow.id;
+        const operation = { traceFlowId, target: flow.remoteIp, phase: "starting", revision: 0, flow };
+        traceOperations.set(flow.id, operation);
+        showTraceResult(flow.id, { flow_id: traceFlowId, target: flow.remoteIp, status: "running", hops: [] });
+        try {
+          const { response, result } = await traceRequest(`/api/traces/${encodeURIComponent(traceFlowId)}`, "POST");
+          if (!response.ok) {
+            traceOperations.delete(flow.id);
+            showTraceResult(flow.id, { target: operation.target, status: "error", hops: [], error: result.error || "Unable to start route trace" });
+            return;
+          }
+          operation.target = result.target || operation.target;
+          operation.phase = "running";
+          if (result.status !== "running") traceOperations.delete(flow.id);
+          showTraceResult(flow.id, result);
+          if (result.status === "running") await pollTrace(traceFlowId, flow.id, operation);
+        } catch (error) {
+          // A lost POST response may still have launched a probe. Keep a stop
+          // action available until a status request establishes the outcome.
+          operation.phase = "running";
+          operation.message = `Trace start could not be confirmed · ${error.message}`;
+          renderActivities(); renderText();
+          operation.timer = window.setTimeout(() => pollTrace(traceFlowId, flow.id, operation), 850);
+        }
+      }
+
+      async function stopTrace() {
+        const displayFlowId = flows[selected]?.id;
+        const operation = traceOperations.get(displayFlowId);
+        const disable = target => {
+          if (flows[selected]?.id === displayFlowId) resetHopSelection();
+          showTraceResult(displayFlowId, { target, status: "cancelled", hops: [], error: null });
+        };
+        if (!operation) {
+          if (traceEnabled(flows[selected])) disable(flows[selected].remoteIp);
+          return;
+        }
+        if (operation.phase !== "running") return;
+        operation.phase = "stopping";
+        operation.revision++;
+        window.clearTimeout(operation.timer);
+        renderActivities(); renderText();
+        try {
+          const { response, result } = await traceRequest(`/api/traces/${encodeURIComponent(operation.traceFlowId)}/stop`, "POST");
+          if (response.status === 404) {
+            traceOperations.delete(displayFlowId);
+            showTraceResult(displayFlowId, { target: operation.target, status: "error", hops: [], error: "No trace job remains on the collector." });
+            return;
+          }
+          if (!response.ok) throw new Error(result.error || "Unable to stop route trace");
+          if (result.status === "running") throw new Error("The probe is still running. Try stopping again.");
+          traceOperations.delete(displayFlowId);
+          disable(result.target || operation.target);
+        } catch (error) {
+          operation.phase = "running";
+          operation.message = `Stop could not be confirmed · ${error.message}`;
+          renderActivities(); renderText();
+          operation.timer = window.setTimeout(() => pollTrace(operation.traceFlowId, displayFlowId, operation), 850);
+        }
+      }
+
+      async function pollTrace(traceFlowId, displayFlowId, operation = traceOperations.get(displayFlowId)) {
+        if (operation && (traceOperations.get(displayFlowId) !== operation || operation.phase !== "running")) return;
+        const revision = operation?.revision;
+        let result;
+        try {
+          const received = await traceRequest(`/api/traces/${encodeURIComponent(traceFlowId)}`);
+          result = received.result;
+          if (received.response.status === 404) result = { target: operation?.target, status: "error", hops: [], error: "No trace job remains on the collector." };
+          else if (!received.response.ok) throw new Error(result.error || "Trace status unavailable");
+        } catch {
+          if (operation) {
+            if (traceOperations.get(displayFlowId) !== operation || revision !== operation.revision) return;
+            operation.message = "Trace status unavailable. You can still request Stop tracing route.";
+            renderActivities(); renderText();
+            operation.timer = window.setTimeout(() => pollTrace(traceFlowId, displayFlowId, operation), 1500);
+            return;
+          }
+          result = { target: traceCache.get(displayFlowId)?.target, status: "error", error: "The trace status could not be retrieved." };
+        }
+        if (operation && (traceOperations.get(displayFlowId) !== operation || revision !== operation.revision)) return;
+        if (operation) operation.message = "";
+        if (result.status === "running") {
+          const timer = window.setTimeout(() => pollTrace(traceFlowId, displayFlowId, operation), 850);
+          if (operation) operation.timer = timer;
+        } else {
+          traceOperations.delete(displayFlowId);
+        }
+        showTraceResult(displayFlowId, result);
+      }
+
+      function relativeTime(timestamp) {
+        const seconds = Math.max(0, Math.round(Date.now() / 1000 - Number(timestamp || 0)));
+        if (seconds < 45) return "just now";
+        if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+        if (seconds < 86400) return `${Math.round(seconds / 3600)} hr ago`;
+        return `${Math.round(seconds / 86400)} day${seconds < 172800 ? "" : "s"} ago`;
+      }
+
+      function activeFindingMatch(evidence) {
+        return latestLocalFlows.find(flow => flow.active
+          && (!evidence.process || flow.application.toLowerCase() === evidence.process.toLowerCase())
+          && (!evidence.protocol || flow.protocol === evidence.protocol)
+          && (!evidence.remote_port || flow.remotePort === Number(evidence.remote_port))
+          && flow.sockets.some(socket => socket.active && socket.remote_ip === evidence.remote_ip));
+      }
+
+      function showFindingConnection(finding) {
+        if (sourceMode !== "live") setSourceMode("live");
+        const query = finding.evidence?.remote_ip || finding.evidence?.process || "";
+        activitySearch.value = query;
+        const liveMatch = activeFindingMatch(finding.evidence || {});
+        if (liveMatch) {
+          historyPreview = null;
+          flows = latestLocalFlows.slice();
+          selectFlow(flows.findIndex(flow => flow.id === liveMatch.id));
+        } else {
+          historyPreview = historicalFindingToDisplay(finding);
+          historyPreview.findingEvidence = finding.evidence || {};
+          flows = [historyPreview, ...latestLocalFlows];
+          selectFlow(0);
+        }
+        securityPanel.hidden = true;
+        securityButton.setAttribute("aria-expanded", "false");
+      }
+
+      const investigateInput = document.getElementById("investigateInput");
+      const investigateButton = document.getElementById("investigateButton");
+      const investigateResult = document.getElementById("investigateResult");
+
+      function investigateMessage(text) {
+        investigateResult.replaceChildren();
+        const note = document.createElement("div");
+        note.className = "security-empty";
+        note.textContent = text;
+        investigateResult.appendChild(note);
+      }
+
+      function investigateRow(list, label, value) {
+        if (!value) return;
+        const item = document.createElement("li");
+        const name = document.createElement("span");
+        name.textContent = label;
+        const detail = document.createElement("b");
+        detail.textContent = value;
+        item.append(name, detail);
+        list.appendChild(item);
+      }
+
+      function renderInvestigation(data) {
+        investigateResult.replaceChildren();
+        const card = document.createElement("article");
+        card.className = "finding-card notice";
+        const title = document.createElement("h3");
+        title.textContent = data.ip;
+        card.appendChild(title);
+
+        const rows = document.createElement("ul");
+        rows.className = "investigate-rows";
+        investigateRow(rows, "Address scope", data.scope);
+        const reference = data.network_reference;
+        if (reference) {
+          investigateRow(rows, "Network", `${reference.label} (${reference.confidence})`);
+          investigateRow(rows, "Operated by", reference.organization);
+        } else if (data.asn && data.asn.organization) {
+          investigateRow(rows, "Network owner", data.asn.organization);
+        }
+        if (data.asn && data.asn.number) {
+          investigateRow(rows, "Autonomous system", `AS${data.asn.number}`);
+        }
+        if (data.geo) {
+          const place = [data.geo.city, data.geo.subdivision, data.geo.country].filter(Boolean).join(", ");
+          if (place) investigateRow(rows, "Estimated location", `${place} (unverified)`);
+        }
+        card.appendChild(rows);
+
+        const explanation = document.createElement("p");
+        const activeApps = [...new Set((data.active || []).map(flow => flow.process).filter(Boolean))];
+        if (activeApps.length) {
+          explanation.textContent = `Connected right now by ${activeApps.join(", ")}.`;
+        } else if ((data.history || []).length) {
+          explanation.textContent = "Not connected right now, but apps on this Mac have contacted this address before.";
+        } else {
+          explanation.textContent = "No app on this Mac has been observed contacting this address.";
+        }
+        card.appendChild(explanation);
+
+        if ((data.history || []).length) {
+          const label = document.createElement("div");
+          label.className = "security-section-label";
+          label.textContent = "Seen from this Mac";
+          card.appendChild(label);
+          const list = document.createElement("ul");
+          list.className = "investigate-rows";
+          data.history.slice(0, 6).forEach(entry => {
+            const item = document.createElement("li");
+            const name = document.createElement("span");
+            name.textContent = `${entry.process} · ${entry.service || entry.protocol} ${entry.remote_port}`;
+            const when = document.createElement("b");
+            when.textContent = relativeTime(entry.last_seen);
+            item.append(name, when);
+            list.appendChild(item);
+          });
+          card.appendChild(list);
+        }
+
+        const note = document.createElement("p");
+        note.textContent = "All evidence was resolved locally; this lookup did not leave your Mac.";
+        card.appendChild(note);
+        investigateResult.appendChild(card);
+      }
+
+      async function investigateAddress() {
+        const value = investigateInput.value.trim();
+        if (!value) {
+          investigateMessage("Enter an IP address to see everything Pulsepath knows about it.");
+          return;
+        }
+        investigateMessage("Collecting local evidence…");
+        try {
+          const response = await fetch(`/api/investigate?ip=${encodeURIComponent(value)}`, { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok) {
+            investigateMessage(data.error || "That address could not be investigated.");
+            return;
+          }
+          renderInvestigation(data);
+        } catch {
+          investigateMessage("The local collector is not reachable. Start Pulsepath with make start to investigate addresses.");
+        }
+      }
+
+      investigateButton.addEventListener("click", investigateAddress);
+      investigateInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") investigateAddress();
+      });
+
+      function outboundMeasurementText(evidence) {
+        return `Observed · nettop outbound counter differences. ${evidence.measured_socket_count} measured socket(s); ${evidence.bytes_out} bytes over ${evidence.window_seconds} seconds. Comparison threshold: ${evidence.threshold_bytes_out} bytes per ${evidence.baseline_window_seconds} seconds, using ${evidence.baseline_window_count} earlier windows. ${evidence.coverage}. The map opens one measured endpoint; the transfer total covers the stream. Application names are grouped and are not verified signing identities.`;
+      }
+
+      function renderSecurity() {
+        if (!securitySummary) return;
+        const summary = securitySummary;
+        const state = document.getElementById("securityState");
+        const stateTitle = document.getElementById("securityStateTitle");
+        const stateText = document.getElementById("securityStateText");
+        const learningTrack = document.getElementById("learningTrack");
+        const progress = document.getElementById("learningProgress");
+        state.classList.toggle("ready", !summary.learning && summary.recording);
+        state.classList.toggle("paused", !summary.recording);
+        if (!summary.recording) {
+          stateTitle.textContent = "History is paused";
+          stateText.textContent = "Live routes still work, but new connections are not being remembered.";
+          learningTrack.hidden = true;
+        } else if (summary.learning) {
+          const percent = Math.round(Number(summary.learning_progress || 0) * 100);
+          stateTitle.textContent = "Learning what’s normal";
+          stateText.textContent = `${summary.service_count || summary.connection_count} familiar service profile${(summary.service_count || summary.connection_count) === 1 ? "" : "s"} so far. Changes will be evaluated after this private baseline is ready.`;
+          learningTrack.hidden = false;
+          progress.style.width = `${percent}%`;
+        } else {
+          stateTitle.textContent = summary.attention_count ? "A change needs context" : "Watching for meaningful changes";
+          stateText.textContent = summary.attention_count
+            ? `${summary.attention_count} recent change${summary.attention_count === 1 ? "" : "s"} is explained below.`
+            : "Unfamiliar destinations and sustained outbound traffic changes will be explained here. Transfer comparisons need their own fresh baseline.";
+          learningTrack.hidden = true;
+        }
+        document.getElementById("historyConnections").textContent = String(summary.service_count || summary.connection_count || 0);
+        document.getElementById("historyApps").textContent = String(summary.process_count || 0);
+        document.getElementById("historyCountries").textContent = String(summary.country_count || 0);
+        document.getElementById("historyPauseButton").textContent = summary.recording ? "Pause history" : "Resume history";
+
+        const badge = document.getElementById("securityBadge");
+        badge.textContent = String(summary.attention_count || 0);
+        badge.classList.toggle("quiet", !summary.attention_count);
+
+        const expandedMeasurements = new Set(Array.from(findingsList.querySelectorAll("details"))
+          .filter(detail => detail.open).map(detail => detail.dataset.findingId));
+        findingsList.replaceChildren();
+        const findings = summary.findings || [];
+        if (!findings.length) {
+          const empty = document.createElement("div");
+          empty.className = "security-empty";
+          empty.textContent = summary.learning
+            ? "Pulsepath is building your destination baseline. Transfer comparisons learn separately from fresh byte counters."
+            : "No unfamiliar connection changes have been recorded yet.";
+          findingsList.appendChild(empty);
+          return;
+        }
+        findings.forEach(finding => {
+          const evidence = finding.evidence || {};
+          const card = document.createElement("article");
+          card.className = `finding-card ${finding.severity === "attention" ? "attention" : "notice"}`;
+          const top = document.createElement("div");
+          top.className = "finding-top";
+          const level = document.createElement("span");
+          level.className = "finding-level";
+          level.textContent = finding.severity === "attention" ? "Review" : "New";
+          const when = document.createElement("span");
+          when.className = "finding-time";
+          when.textContent = relativeTime(finding.created_at);
+          top.append(level, when);
+          const title = document.createElement("h3");
+          title.textContent = finding.title;
+          const explanation = document.createElement("p");
+          explanation.textContent = finding.explanation;
+          const tags = document.createElement("div");
+          tags.className = "finding-evidence";
+          const signals = evidence.event_type === "coincidence" ? evidence.signals || [] : [];
+          signals.forEach(signal => {
+            const tag = document.createElement("span");
+            tag.className = "finding-signal";
+            tag.textContent = signal.label;
+            if (signal.detail) tag.title = signal.detail;
+            tags.appendChild(tag);
+          });
+          if (evidence.event_type === "unexpected_network") {
+            // A match against Pulsepath's curated app list, not an observation.
+            const tag = document.createElement("span");
+            tag.className = "finding-signal";
+            tag.textContent = "Reference";
+            tag.title = `Pulsepath app reference · ${evidence.reference_source || "source not recorded"} · reviewed ${evidence.reference_reviewed || "date not recorded"}`;
+            tags.appendChild(tag);
+          }
+          [evidence.network_label || evidence.provider, evidence.destination, evidence.location, evidence.network].filter(Boolean).forEach(value => {
+            const tag = document.createElement("span");
+            tag.textContent = value;
+            tags.appendChild(tag);
+          });
+          const actions = document.createElement("div");
+          actions.className = "finding-actions";
+          const show = document.createElement("button");
+          show.type = "button";
+          show.className = "finding-show";
+          show.textContent = "Show connection on map →";
+          show.addEventListener("click", () => showFindingConnection(finding));
+          const expect = document.createElement("button");
+          expect.type = "button";
+          expect.className = "finding-expect";
+          expect.textContent = "Expected";
+          expect.title = "Remember this stream as expected. The finding stays in local history and later repeats are not shown.";
+          expect.addEventListener("click", () => expectFinding(finding));
+          actions.append(show, expect);
+          card.append(top, title, explanation, tags, actions);
+          const measurements = evidence.event_type === "outbound_change" ? [evidence]
+            : signals.filter(signal => signal.kind === "outbound_change");
+          if (measurements.length) {
+            const details = document.createElement("details");
+            details.className = "finding-measurement";
+            details.dataset.findingId = String(finding.id);
+            details.open = expandedMeasurements.has(String(finding.id));
+            const heading = document.createElement("summary");
+            heading.textContent = "Inspect transfer evidence";
+            details.appendChild(heading);
+            measurements.forEach(measurementEvidence => {
+              const measurement = document.createElement("p");
+              measurement.textContent = outboundMeasurementText(measurementEvidence);
+              details.appendChild(measurement);
+            });
+            card.appendChild(details);
+          }
+          findingsList.appendChild(card);
+        });
+      }
+
+      async function expectFinding(finding) {
+        const evidence = finding.evidence || {};
+        const ids = evidence.event_type === "coincidence"
+          ? (evidence.signals || []).map(signal => signal.finding_id)
+          : [finding.id];
+        const response = await fetch("/api/security/expect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ finding_ids: ids.filter(id => Number.isInteger(id)) })
+        });
+        if (!response.ok) return;
+        securitySummary = await response.json();
+        renderSecurity();
+      }
+
+      function sidebarWidth() {
+        const parsed = Number.parseFloat(getComputedStyle(document.querySelector(".app")).getPropertyValue("--sidebar-width"));
+        return Number.isFinite(parsed) ? parsed : 280;
+      }
+
+      function setSidebarWidth(width) {
+        const next = Math.round(Math.max(240, Math.min(480, width)));
+        const frame = document.querySelector(".app");
+        frame.style.setProperty("--sidebar-width", `${next}px`);
+        const handle = document.getElementById("sidebarResize");
+        handle.setAttribute("aria-valuenow", String(next));
+        try { sessionStorage.setItem("pulsepath-sidebar-width", String(next)); } catch { /* storage can be blocked */ }
+      }
+
+      function installSidebarResize() {
+        const handle = document.getElementById("sidebarResize");
+        try {
+          const saved = sessionStorage.getItem("pulsepath-sidebar-width");
+          if (saved) setSidebarWidth(Number(saved));
+        } catch { /* ignore */ }
+        handle.addEventListener("pointerdown", event => {
+          if (window.innerWidth <= 840) return;
+          event.preventDefault();
+          handle.setPointerCapture(event.pointerId);
+          const origin = event.clientX;
+          const start = sidebarWidth();
+          const move = (ev) => setSidebarWidth(start + ev.clientX - origin);
+          const finish = () => {
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", finish);
+            handle.removeEventListener("pointercancel", finish);
+          };
+          handle.addEventListener("pointermove", move);
+          handle.addEventListener("pointerup", finish);
+          handle.addEventListener("pointercancel", finish);
+        });
+        handle.addEventListener("keydown", event => {
+          if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+          event.preventDefault();
+          setSidebarWidth(sidebarWidth() + (event.key === "ArrowRight" ? 24 : -24));
+        });
+      }
+
+      async function pollSecurity() {
+        try {
+          const response = await fetch("/api/security/summary", { cache: "no-store" });
+          if (!response.ok) throw new Error("security history unavailable");
+          securitySummary = await response.json();
+          securityButton.hidden = false;
+          renderSecurity();
+        } catch (error) {
+          securityButton.hidden = true;
+          securityPanel.hidden = true;
+        } finally {
+          window.setTimeout(pollSecurity, 3500);
+        }
+      }
+
+      async function toggleHistoryRecording() {
+        if (!securitySummary) return;
+        const button = document.getElementById("historyPauseButton");
+        button.disabled = true;
+        try {
+          const response = await fetch("/api/security/recording", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: !securitySummary.recording })
+          });
+          if (!response.ok) throw new Error("Unable to change history recording");
+          securitySummary = await response.json();
+          renderSecurity();
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      async function clearSecurityHistory() {
+        const confirmed = window.confirm("Clear all locally stored connection history and begin a new learning period?");
+        if (!confirmed) return;
+        const response = await fetch("/api/security/clear", { method: "POST" });
+        if (!response.ok) return;
+        securitySummary = await response.json();
+        renderSecurity();
+      }
+
+      function renderSourceStatus() {
+        const demo = sourceMode === "simulation";
+        const labels = { connecting: "Connecting to collector", live: "Live local metadata", stale: "Stale collector data", disconnected: "Collector disconnected" };
+        document.getElementById("liveStateText").textContent = (demo ? "Simulation" : labels[collectorState]) + (paused ? " · animation paused" : "");
+        mapShell.classList.toggle("live-local", !demo);
+        mapShell.classList.toggle("collector-unavailable", !demo && collectorState !== "live");
+        document.getElementById("sourceState").classList.toggle("collector-unavailable", !demo && collectorState !== "live");
+        document.getElementById("metricValue").textContent = demo ? "Demo" : "Metadata";
+        document.getElementById("modeButton").hidden = location.protocol === "file:";
+        document.getElementById("modeButton").textContent = demo ? "Use live activity" : "View simulation";
+        document.getElementById("sourceLabel").textContent = demo ? "Simulation · example connections" : labels[collectorState];
+        const lastSeen = lastSuccessfulPoll ? `Last successful collection: ${new Date(lastSuccessfulPoll * 1000).toLocaleTimeString()} · ${relativeTime(lastSuccessfulPoll)}.` : "No successful collection yet.";
+        const intelligence = collectorStatus?.geoip_available && collectorStatus?.asn_available
+          ? "Offline city + network intelligence active."
+          : collectorStatus?.geoip_available ? "Offline city estimates active." : "External geolocation and payload capture are disabled.";
+        document.getElementById("sourceDescription").textContent = demo
+          ? "Generated examples. Choose Use live activity to inspect the local collector."
+          : `${lastSeen} ${collectorState === "disconnected" ? "Reconnecting automatically." : collectorState === "stale" ? "Collection is delayed or failing; recent connections are static." : intelligence}${collectorStatus?.nettop_error ? " Some process metadata is unavailable." : ""}`;
+      }
+
+      function refreshLocalDisplay() {
+        const selectedId = flows[selected]?.id;
+        const selectedTarget = flows[selected]?.remoteIp;
+        latestLocalFlows = latestRawFlows.map(liveFlowToDisplay);
+        // Keep a disappearing socket's probe reachable until it finishes or is
+        // stopped. The retained row is explicitly no longer an active socket.
+        traceOperations.forEach((operation, id) => {
+          if (!latestLocalFlows.some(flow => flow.id === id)) {
+            const retained = { ...operation.flow, active: false, activeSocketCount: 0, latencyText: "RECENT",
+              sockets: (operation.flow.sockets || []).map(socket => ({ ...socket, active: false })) };
+            const trace = traceCache.get(id);
+            if (trace?.target === retained.remoteIp) applyTraceToFlow(retained, trace);
+            latestLocalFlows.push(retained);
+          }
+        });
+        // While collection is running, a connection that just appeared leads the
+        // list. Equal start times keep the previous order. Simulation is untouched.
+        latestLocalFlows.sort(compareNewestConnection);
+        if (sourceMode !== "live") return;
+        const reconnected = historyPreview && activeFindingMatch(historyPreview.findingEvidence || {});
+        if (reconnected) historyPreview = null;
+        flows = historyPreview ? [historyPreview, ...latestLocalFlows] : latestLocalFlows.slice();
+        selected = Math.max(0, flows.findIndex(flow => flow.id === (reconnected?.id || selectedId)));
+        const firstMatch = flows.findIndex(flow => matchesActivity(flow));
+        if (activitySearch.value.trim() && firstMatch < 0) selected = -1;
+        if (activitySearch.value.trim() && firstMatch >= 0 && !matchesActivity(flows[selected])) selected = firstMatch;
+        if (selectedId !== flows[selected]?.id || selectedTarget !== flows[selected]?.remoteIp) {
+          resetHopSelection();
+          document.getElementById("mapExplanation").open = false;
+          showIntermediateHops = false;
+          mapShell.classList.remove("show-intermediate-hops");
+        }
+        document.getElementById("flowsCount").textContent = String(flows.length);
+        renderActivities();
+        renderText();
+        renderRoute();
+      }
+
+      function setSourceMode(mode) {
+        resetHopSelection();
+        document.getElementById("mapExplanation").open = false;
+        showIntermediateHops = false;
+        mapShell.classList.remove("show-intermediate-hops");
+        sourceMode = mode;
+        historyPreview = null;
+        flows = mode === "live" ? latestLocalFlows.slice() : demoFlows.slice();
+        selected = flows.findIndex(flow => matchesActivity(flow));
+        zoom = 1;
+        tx = 0;
+        ty = 0;
+        document.getElementById("flowsCount").textContent = String(flows.length);
+        renderSourceStatus();
+        renderActivities();
+        renderText();
+        renderRoute();
+        updateTransform();
+      }
+
+      async function collectorJson(path) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 6500);
+        try {
+          const response = await fetch(path, { cache: "no-store", signal: controller.signal });
+          if (!response.ok) throw new Error("Collector request failed");
+          return await response.json();
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }
+
+      async function pollCollector() {
+        if (location.protocol === "file:") return;
+        try {
+          const [status, payload] = await Promise.all([collectorJson("/api/status"), collectorJson("/api/flows")]);
+          if (!Array.isArray(payload.flows)) throw new Error("Invalid collector response");
+          collectorStatus = status;
+          activeWindowSeconds = Number(status.active_window_seconds) || 10;
+          lastSuccessfulPoll = status.last_successful_poll || null;
+          collectorState = lastSuccessfulPoll && !status.last_error && Date.now() / 1000 - lastSuccessfulPoll <= activeWindowSeconds
+            ? "live" : "stale";
+          latestRawFlows = payload.flows;
+          document.getElementById("geoAttribution").hidden = !(status.geoip_available || status.asn_available);
+        } catch (error) {
+          collectorState = "disconnected";
+        } finally {
+          refreshLocalDisplay();
+          renderSourceStatus();
+          window.setTimeout(pollCollector, 2200);
+        }
+      }
+
+      function refreshFreshness() {
+        const now = Date.now() / 1000;
+        const expired = collectorState === "live" && now - Number(lastSuccessfulPoll || 0) > activeWindowSeconds;
+        if (expired) collectorState = "stale";
+        // Age the retained snapshot even when an HTTP request hangs or the server disappears.
+        const retainedCount = latestRawFlows.length;
+        latestRawFlows = latestRawFlows.filter(flow => now - Number(flow.last_seen || 0) <= 120);
+        const socketsAged = latestLocalFlows.some(flow => flow.sockets.some(socket =>
+          socket.active && now - Number(socket.last_seen || 0) > activeWindowSeconds));
+        if (expired || socketsAged || retainedCount !== latestRawFlows.length) refreshLocalDisplay();
+        renderSourceStatus();
+        window.setTimeout(refreshFreshness, 1000);
+      }
+
+      function updateTransform() {
+        renderMapExplanation();
+        worldGroup.setAttribute("transform", `translate(${tx} ${ty}) scale(${zoom})`);
+        updateScreenFixedDetails();
+        restartPacketAnimation();
+        mapShell.classList.toggle("detail-medium", zoom >= 1.55);
+        mapShell.classList.toggle("detail-high", zoom >= 2.65);
+        mapShell.classList.toggle("detail-city", zoom >= 6);
+        const label = zoom >= 12 ? "Detail" : zoom >= 6 ? "City" : zoom >= 2.65 ? "Hops" : zoom >= 1.55 ? "Protocol" : "World";
+        zoomReadout.textContent = `${label} · ${zoom.toFixed(1)}×`;
+        zoomHint.textContent = zoom >= 6
+          ? "City view · click another node to recenter · drag to pan"
+          : zoom >= 2.65
+            ? "Click a city node to focus, or keep zooming"
+            : "Zoom for protocols · click a hop to inspect its details";
+        document.getElementById("zoomIn").disabled = zoom >= MAX_ZOOM - .01;
+      }
+
+      function zoomAt(newZoom, x = WIDTH / 2, y = HEIGHT / 2) {
+        newZoom = Math.max(.85, Math.min(MAX_ZOOM, newZoom));
+        tx = x - (x - tx) * (newZoom / zoom);
+        ty = y - (y - ty) * (newZoom / zoom);
+        zoom = newZoom;
+        updateTransform();
+      }
+
+      function routeBounds(flow) {
+        const projected = flow.points.map(point => project([point.lon, point.lat]));
+        const xs = projected.map(point => point[0]);
+        const ys = projected.map(point => point[1]);
+        return {
+          x: (Math.min(...xs) + Math.max(...xs)) / 2,
+          y: (Math.min(...ys) + Math.max(...ys)) / 2,
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys)
+        };
+      }
+
+      function centerOn(bounds, newZoom) {
+        zoom = Math.max(.85, Math.min(MAX_ZOOM, newZoom));
+        tx = WIDTH / 2 - bounds.x * zoom;
+        ty = HEIGHT / 2 - bounds.y * zoom;
+      }
+
+      function centerSelectedAt(newZoom) {
+        if (!flows[selected]) { zoomAt(newZoom); return; }
+        centerOn(routeBounds(flows[selected]), newZoom);
+        updateTransform();
+      }
+
+      // Choosing a connection frames it. A nearby route is zoomed to fill about
+      // half the map, leaving room for labels and panels; a long-haul one
+      // (Europe to the US, say) keeps the world view, where its whole arc
+      // already fits. Automatic selections, such as switching source, keep the
+      // world view.
+      const NEAR_ROUTE_MIN_ZOOM = 3;
+      const NEAR_ROUTE_MAX_ZOOM = 12;
+      const WITHHELD_ROUTE_ZOOM = 4;
+      function frameSelectedRoute() {
+        zoom = 1;
+        tx = 0;
+        ty = 0;
+        const flow = flows[selected];
+        if (!flow) return;
+        const endpoint = flow.points.at(-1);
+        const traced = Boolean(flow.traceResult?.hops?.length);
+        // An unlocated endpoint sits on a mid-ocean visual anchor; zooming in
+        // on that spot would suggest a place the data never showed.
+        if (flow.live && !endpoint.approximate && !endpoint.rejectedGeo && !traced) return;
+        const bounds = routeBounds(flow);
+        const fit = Math.min(WIDTH * .5 / Math.max(bounds.width, 1), HEIGHT * .4 / Math.max(bounds.height, 1));
+        if (fit < NEAR_ROUTE_MIN_ZOOM) return;
+        // A withheld city leaves only "near, per the round trip". Without trace
+        // hops the marker is a display position, so frame the region instead
+        // of presenting that spot at street level.
+        centerOn(bounds, Math.min(fit, endpoint.rejectedGeo && !traced ? WITHHELD_ROUTE_ZOOM : NEAR_ROUTE_MAX_ZOOM));
+      }
+
+      function focusPoint(point, hopIndex = point.hopIndex) {
+        const flow = flows[selected];
+        const hop = flow.traceResult?.hops?.find(item => item.index === hopIndex)
+          || (point === flow.points.at(-1) ? flow.traceResult?.hops?.find(item => item.reply && item.ip === point.ip) : null);
+        evidencePointKey = pointEvidenceKey(point);
+        hopSelection = { flowId: flow.id, target: flow.remoteIp, index: hop?.index, ip: hop?.ip, startedAt: flow.traceResult?.started_at };
+        document.getElementById("mapExplanation").open = true;
+        document.querySelectorAll(".node-marker").forEach(node => node.setAttribute("aria-pressed", "false"));
+        const markerIndex = showIntermediateHops || traceEnabled(flow) ? flow.points.indexOf(point) : point === flow.points[0] ? 0 : 1;
+        routeLayer.querySelectorAll(".node-marker")[markerIndex]?.setAttribute("aria-pressed", "true");
+        const [focusX, focusY] = project([point.lon, point.lat]);
+        zoom = Math.min(MAX_ZOOM, Math.max(8, zoom * 1.75));
+        tx = WIDTH / 2 - focusX * zoom;
+        ty = HEIGHT / 2 - focusY * zoom;
+        updateTransform();
+        document.getElementById("hopInspector").scrollIntoView?.({ block: "nearest" });
+      }
+
+      function svgPoint(event) {
+        const rect = map.getBoundingClientRect();
+        return [(event.clientX - rect.left) * WIDTH / rect.width, (event.clientY - rect.top) * HEIGHT / rect.height];
+      }
+
+      map.addEventListener("wheel", event => {
+        event.preventDefault();
+        const [x, y] = svgPoint(event);
+        zoomAt(zoom * (event.deltaY < 0 ? 1.18 : .85), x, y);
+      }, { passive: false });
+
+      map.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || drag) return;
+        event.preventDefault();
+        const marker = event.target.closest?.(".node-marker");
+        const context = event.target.closest?.(".constellation-node");
+        drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, tx, ty,
+          constellationKey: context?.getAttribute("data-constellation-key"),
+          pointKey: marker?.getAttribute("data-point-key"), flow: flows[selected]?.id, moved: false };
+        map.setPointerCapture(event.pointerId);
+      });
+
+      map.addEventListener("pointermove", event => {
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 4) drag.moved = true;
+        if (!drag.moved) return;
+        map.classList.add("dragging");
+        const rect = map.getBoundingClientRect();
+        tx = drag.tx + (event.clientX - drag.x) * WIDTH / rect.width;
+        ty = drag.ty + (event.clientY - drag.y) * HEIGHT / rect.height;
+        updateTransform();
+      });
+
+      function endDrag(event) {
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const gesture = drag;
+        drag = null;
+        map.classList.remove("dragging");
+        if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
+        const moved = gesture.moved || Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4;
+        if (event.type === "pointerup" && !moved && gesture.flow === flows[selected]?.id && gesture.constellationKey) {
+          activateConstellation(gesture.constellationKey);
+          return;
+        }
+        if (event.type === "pointerup" && !moved && gesture.flow === flows[selected]?.id && gesture.pointKey) {
+          const point = flows[selected]?.points.find(item => pointEvidenceKey(item) === gesture.pointKey);
+          if (point) focusPoint(point);
+        }
+      }
+      map.addEventListener("pointerup", endDrag);
+      map.addEventListener("pointercancel", endDrag);
+      map.addEventListener("lostpointercapture", endDrag);
+
+      document.getElementById("zoomIn").addEventListener("click", () => {
+        if (zoom < 2.65) centerSelectedAt(zoom * 1.6);
+        else zoomAt(zoom * 1.6, WIDTH / 2, HEIGHT / 2);
+      });
+      document.getElementById("zoomOut").addEventListener("click", () => zoom <= 1.05 ? zoomAt(1) : zoomAt(zoom / 1.6, WIDTH / 2, HEIGHT / 2));
+      document.getElementById("zoomReset").addEventListener("click", () => { zoom = 1; tx = 0; ty = 0; updateTransform(); });
+      locationButton.addEventListener("click", toggleLocationTracking);
+      document.getElementById("hopTraceButton").addEventListener("click", toggleTrace);
+      document.getElementById("mapExplanation").addEventListener("toggle", event => {
+        showIntermediateHops = event.currentTarget.open;
+        mapShell.classList.toggle("show-intermediate-hops", showIntermediateHops);
+        renderMapExplanation();
+        renderRoute();
+      });
+      document.getElementById("mapExplanation").addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.currentTarget.open = false; }
+      });
+
+      captureButton.addEventListener("click", () => {
+        paused = !paused;
+        mapShell.classList.toggle("paused", paused);
+        document.getElementById("sourceState").classList.toggle("animation-paused", paused);
+        captureButton.textContent = paused ? "Resume animation" : "Pause animation";
+        renderSourceStatus();
+        restartPacketAnimation();
+      });
+
+      document.getElementById("visualStyleButton").addEventListener("click", event => {
+        luminous = !luminous;
+        mapShell.classList.toggle("luminous", luminous);
+        event.currentTarget.setAttribute("aria-pressed", String(luminous));
+        event.currentTarget.textContent = luminous ? "✦ Luminous" : "◇ Quiet";
+        renderRoute();
+      });
+      document.getElementById("constellationButton").addEventListener("click", event => {
+        constellation = !constellation;
+        constellationSelection = null;
+        event.currentTarget.setAttribute("aria-pressed", String(constellation));
+        renderRoute();
+      });
+      function closeConstellationPicker() {
+        const key = constellationSelection;
+        constellationSelection = null;
+        renderConstellationPicker();
+        Array.from(constellationLayer.querySelectorAll(".constellation-node"))
+          .find(node => node.getAttribute("data-constellation-key") === key)?.focus?.();
+      }
+      document.getElementById("constellationClose").addEventListener("click", closeConstellationPicker);
+      document.getElementById("constellationPicker").addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.preventDefault(); closeConstellationPicker(); }
+      });
+
+      document.getElementById("modeButton").addEventListener("click", () => {
+        setSourceMode(sourceMode === "live" ? "simulation" : "live");
+      });
+
+      securityButton.addEventListener("click", () => {
+        securityPanel.hidden = !securityPanel.hidden;
+        securityButton.setAttribute("aria-expanded", String(!securityPanel.hidden));
+        if (!securityPanel.hidden) renderSecurity();
+      });
+      document.getElementById("securityClose").addEventListener("click", () => {
+        securityPanel.hidden = true;
+        securityButton.setAttribute("aria-expanded", "false");
+      });
+      document.getElementById("historyPauseButton").addEventListener("click", toggleHistoryRecording);
+      document.getElementById("historyClearButton").addEventListener("click", clearSecurityHistory);
+
+      traceRouteButton.addEventListener("click", toggleTrace);
+      // T does what the Trace route button would do for the selected
+      // connection. A trace sends probes, so it needs a deliberate press:
+      // never while typing, with a modifier chord, or from a held key, and
+      // only when the button itself could be pressed.
+      document.addEventListener("keydown", event => {
+        if (event.key?.toLowerCase() !== "t" || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+        if (event.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+        if (traceRouteButton.hidden || traceRouteButton.disabled) return;
+        event.preventDefault();
+        toggleTrace();
+      });
+
+      activitySearch.addEventListener("input", () => {
+        if (historyPreview && !matchesActivity(historyPreview)) {
+          historyPreview = null;
+          flows = latestLocalFlows.slice();
+        }
+        const firstMatch = flows.findIndex(flow => matchesActivity(flow));
+        if (firstMatch < 0) selected = -1;
+        if (firstMatch >= 0 && firstMatch !== selected) {
+          selectFlow(firstMatch);
+        } else {
+          renderActivities();
+          renderText();
+          renderRoute();
+        }
+      });
+
+      installSidebarResize();
+      renderWorld();
+      renderSourceStatus();
+      document.getElementById("flowsCount").textContent = String(flows.length);
+      renderActivities();
+      renderText();
+      renderRoute();
+      updateTransform();
+      pollCollector();
+      if (location.protocol !== "file:") pollSecurity();
+      window.setTimeout(refreshFreshness, 1000);
+    })();
+  </script>
+</body>
+</html>

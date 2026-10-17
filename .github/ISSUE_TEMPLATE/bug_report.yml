@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a reproducible Pulsepath problem using redacted or synthetic data
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste real connection history, packet captures, credentials, or vulnerability details here. Use SECURITY.md for security reports.
+  - type: input
+    id: version
+    attributes:
+      label: Revision
+      description: Commit hash or release version.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the expected and actual behavior. Redact IPs, app names, and private paths when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide minimal steps using synthetic or public test destinations.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed private connection data, credentials, and message contents.
+          required: true

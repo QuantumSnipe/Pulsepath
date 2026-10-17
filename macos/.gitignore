@@ -1,0 +1,5 @@
+xcuserdata/
+DerivedData/
+*.xcuserstate
+buildServer.json
+.sourcekit-lsp/
