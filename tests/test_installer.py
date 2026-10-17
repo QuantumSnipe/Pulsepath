@@ -5,6 +5,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import install_geoip
 
@@ -73,6 +74,20 @@ class DownloadIntegrityTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             install_geoip.copy_stream(source, target, max_bytes=1024 * 1024)
         self.assertFalse(target.exists(), "a partial oversized download must not be left behind")
+
+    def test_download_refuses_a_redirect_off_https(self) -> None:
+        response = MagicMock()
+        response.geturl.return_value = "http://example.invalid/dbip-city-lite.mmdb.gz"
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(install_geoip, "DATA_DIR", Path(directory)), \
+                patch.object(install_geoip.urllib.request, "urlopen", return_value=response) as urlopen:
+            with self.assertRaises(RuntimeError) as caught:
+                install_geoip.download_database("city", "1 MB")
+            self.assertIn("HTTPS", str(caught.exception))
+            urlopen.assert_called()
+            self.assertFalse(any(Path(directory).iterdir()), "a redirected download must not be stored")
 
     def test_database_with_mmdb_marker_is_accepted(self) -> None:
         database = self.directory / "database.mmdb"

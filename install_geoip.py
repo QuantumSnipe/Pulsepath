@@ -11,6 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -119,6 +120,8 @@ def download_database(kind: str, size_label: str) -> Path:
             print(f"Downloading DB-IP {kind.upper()} Lite {release} ({size_label})…")
             request = urllib.request.Request(url, headers={"User-Agent": "Pulsepath/0.1"})
             with urllib.request.urlopen(request, timeout=45) as response:
+                if urlsplit(response.geturl()).scheme != "https":
+                    raise RuntimeError("redirected away from HTTPS")
                 total = int(response.headers.get("Content-Length", "0"))
                 copy_stream(response, archive, total=total)
             print()
