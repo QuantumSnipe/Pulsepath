@@ -7,12 +7,14 @@ import argparse
 import base64
 import csv
 import hashlib
+import hmac
 import ipaddress
 import io
 import json
 import os
 import posixpath
 import re
+import secrets
 import signal
 import sqlite3
 import subprocess
@@ -55,6 +57,11 @@ SIGHTING_RETENTION_SECONDS = 30 * 86400
 STATIC_PAGE_ROUTES = {"/", "/index.html"}
 STATIC_BASEMAP_ROUTE = re.compile(r"/data/[A-Za-z0-9_\-]+\.geojson")
 
+# One token per process. Loopback and Origin checks do not stop another local
+# process, or another macOS account, from calling /api/*. The served page
+# sends this value back; compare it with hmac.compare_digest.
+API_TOKEN = secrets.token_urlsafe(32)
+
 # Providers' published address ranges (references/, refreshed by
 # `make update-references`) and the curated networks well-known apps use. A
 # range match identifies who operates the address and in what role, never
@@ -63,7 +70,26 @@ PROVIDER_RANGES = references.ProviderRanges.load()
 APP_NETWORKS = references.AppNetworks.load()
 
 if VENDOR_DIR.exists():
-    sys.path.insert(0, str(VENDOR_DIR))
+    # Append so a package dropped in vendor/ cannot shadow the standard library.
+    sys.path.append(str(VENDOR_DIR))
+
+
+def with_api_token(document: bytes, token: str = API_TOKEN) -> bytes:
+    """Inject the session token outside the inline script.
+
+    The script bytes stay the same, so the script-hash CSP computed from this
+    snapshot still matches. A page with no <head> gets the tag before <script>.
+    """
+    tag = f'<meta name="pulsepath-token" content="{token}">'.encode("ascii")
+    lowered = document.lower()
+    head = lowered.find(b"<head>")
+    if head != -1:
+        insert_at = head + len(b"<head>")
+        return document[:insert_at] + tag + document[insert_at:]
+    script = lowered.find(b"<script>")
+    if script != -1:
+        return document[:script] + tag + document[script:]
+    return tag + document
 
 
 def index_script_hash(document: bytes) -> str:
@@ -2031,12 +2057,14 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
         if route not in STATIC_PAGE_ROUTES:
             return super().send_head()
         try:
-            document = (APP_DIR / "index.html").read_bytes()
+            document = with_api_token((APP_DIR / "index.html").read_bytes(), API_TOKEN)
         except OSError:
             self.send_error(404, "Interface file unavailable")
             return None
         # Keep the CSP and body tied to one snapshot, even if the file changes
         # while this request is being served. GET and HEAD share this path.
+        # Hash after injection: the token sits outside <script>, so the hash
+        # still matches the inline script. If that script changes, recompute.
         self.page_script_hash = index_script_hash(document)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2049,6 +2077,8 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
             self._json({"error": "Pulsepath accepts local requests only."}, status=403)
             return
         route = self.path.split("?", 1)[0]
+        if route.startswith("/api/") and not self._api_token_accepted():
+            return
         if route == "/api/status":
             self._json(self.collector.status())
             return
@@ -2110,6 +2140,9 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
         if not self._request_is_local(require_origin=True):
             self._json({"error": "Pulsepath accepts same-origin local requests only."}, status=403)
             return
+        route = self.path.split("?", 1)[0]
+        if route.startswith("/api/") and not self._api_token_accepted():
+            return
         try:
             content_length = int(self.headers.get("Content-Length") or "0")
         except ValueError:
@@ -2119,7 +2152,6 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
             self.close_connection = True
             self._json({"error": "The request body is too large."}, status=413)
             return
-        route = self.path.split("?", 1)[0]
         if route == "/api/security/recording":
             body = self._read_json()
             if not isinstance(body.get("enabled"), bool):
@@ -2157,6 +2189,13 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
                 self._json(job, status=status)
             return
         self._json({"error": "Not found"}, status=404)
+
+    def _api_token_accepted(self) -> bool:
+        presented = self.headers.get("X-Pulsepath-Token", "")
+        if hmac.compare_digest(presented, API_TOKEN):
+            return True
+        self._json({"error": "Pulsepath rejected this API request."}, status=403)
+        return False
 
     def _request_is_local(self, require_origin: bool = False) -> bool:
         allowed_hosts = {"127.0.0.1", "localhost", "::1"}

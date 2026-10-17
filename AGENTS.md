@@ -10,7 +10,7 @@ Pulsepath is a local-first visual network activity explorer for **macOS only** (
 - Foreground collector without opening a browser: `make run` or `python3 pulsepath.py --no-open --port 4173`
 - UI-only / simulation: open `index.html` in a browser (no live collector)
 
-If something is already listening on **4173**, do not start a second server. Prefer `make start` (reopens the existing instance) or `make restart`. Runtime PID/log: `/tmp/pulsepath-$UID/`.
+If something is already listening on **4173**, do not start a second server. Prefer `make start` (reopens the existing instance) or `make restart`. Runtime PID/log: `~/Library/Caches/Pulsepath/` (or `$TMPDIR/Pulsepath` when `HOME` is unset).
 
 ## Verify
 - Full local checks: `make check` (unittest + `py_compile` + `index.html` script parse)

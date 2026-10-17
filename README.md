@@ -175,7 +175,7 @@ Natural Earth map data is public domain. Learn more at [naturalearthdata.com](ht
 
 ## Troubleshooting
 
-Reach for the collector log first. `make start` runs the collector in the background and writes it to `/tmp/pulsepath-<your uid>/server.log`. To watch it live instead, run `make run`, which starts the collector in the foreground with `--no-open` and prints its output.
+Reach for the collector log first. `make start` runs the collector in the background and writes it to `~/Library/Caches/Pulsepath/server.log` (or `$TMPDIR/Pulsepath/server.log` when `HOME` is unset). To watch it live instead, run `make run`, which starts the collector in the foreground with `--no-open` and prints its output.
 
 **The browser does not open, or the page is blank**
 
@@ -237,7 +237,7 @@ Then delete the local data you no longer want:
 - **Local history:** `data/pulsepath-history.sqlite3`, plus any `-wal` and `-shm` sidecars. Pulsepath recreates these on the next launch. The `data/` directory is set to `0700` and the database to `0600`.
 - **Offline GeoIP data:** `data/dbip-*.mmdb` and any `data/*.part` files. Re-run `install-geoip.command` to restore them.
 - **Vendored MMDB reader:** the `vendor/` directory installed by `install_geoip.py`.
-- **Runtime files:** `/tmp/pulsepath-<your uid>` (`server.pid`, `server.log`).
+- **Runtime files:** `~/Library/Caches/Pulsepath` (`server.pid`, `server.log`). When `HOME` is unset, the same files live under `$TMPDIR/Pulsepath`.
 - **The application itself:** delete the cloned folder, or run `git clean -xfd` inside it to remove everything not tracked by Git.
 
 If you enabled the native Network Extension observer, disable it from that app and remove it under **System Settings → Network → Filters** (wording varies by macOS) before deleting the build. See [macos/README.md](macos/README.md) for recovery steps.

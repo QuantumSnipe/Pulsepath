@@ -81,6 +81,7 @@ function createApp(protocol = "http:", { reducedMotion = false, hidden = false, 
     createElementNS: (_, tag) => new Element(tag),
     createDocumentFragment: () => new Element("fragment"),
     querySelectorAll: selector => [...elements.values()].flatMap(element => element.querySelectorAll(selector)),
+    querySelector: selector => [...elements.values()].flatMap(element => element.querySelectorAll(selector))[0] || null,
   };
   let now = 1_800_000_000_000;
   let responseFor = () => { throw new Error("No collector response scheduled"); };
