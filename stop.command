@@ -1,8 +1,31 @@
 #!/bin/zsh
 
-RUNTIME_DIR="/tmp/pulsepath-$UID"
+if [[ -n "${HOME:-}" ]]; then
+  RUNTIME_DIR="${HOME}/Library/Caches/Pulsepath"
+else
+  runtime_parent="${TMPDIR:-/tmp}"
+  RUNTIME_DIR="${runtime_parent%/}/Pulsepath"
+fi
 PID_FILE="$RUNTIME_DIR/server.pid"
 APP_DIR="${0:A:h}"
+
+# Same path rules as start.command. Do not read a pid from a symlink or
+# from a directory owned by someone else.
+if [[ -L "$RUNTIME_DIR" ]]; then
+  echo "Pulsepath refused to stop: ${RUNTIME_DIR} is a symlink."
+  exit 1
+fi
+if [[ -e "$RUNTIME_DIR" ]]; then
+  if [[ ! -d "$RUNTIME_DIR" ]]; then
+    echo "Pulsepath refused to stop: ${RUNTIME_DIR} is not a directory."
+    exit 1
+  fi
+  runtime_owner="$(/usr/bin/stat -f '%u' "$RUNTIME_DIR")"
+  if [[ "$runtime_owner" != "$UID" ]]; then
+    echo "Pulsepath refused to stop: ${RUNTIME_DIR} is not owned by this user."
+    exit 1
+  fi
+fi
 
 if [[ -f "$PID_FILE" ]]; then
   server_pid="$(<"$PID_FILE")"

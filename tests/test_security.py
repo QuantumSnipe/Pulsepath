@@ -46,6 +46,9 @@ class LocalServerTestCase(unittest.TestCase):
             headers.update(extra)
         return headers
 
+    def api_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        return self.local_headers({"X-Pulsepath-Token": pulsepath.API_TOKEN, **(extra or {})})
+
 class LocalRequestSecurityTests(LocalServerTestCase):
     def test_updated_page_keeps_csp_in_sync_without_server_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory, patch.object(pulsepath, "APP_DIR", Path(directory)):
@@ -53,7 +56,9 @@ class LocalRequestSecurityTests(LocalServerTestCase):
             for script in (b"console.log('first');", b"console.log('updated');"):
                 document = b"<!doctype html><script>" + script + b"</script>"
                 page.write_bytes(document)
+                served = pulsepath.with_api_token(document)
                 expected_hash = base64.b64encode(hashlib.sha256(script).digest()).decode("ascii")
+                self.assertEqual(pulsepath.index_script_hash(served), expected_hash)
                 for method, route in (("GET", "/"), ("GET", "/index.html?refresh=1"), ("HEAD", "/")):
                     with self.subTest(script=script, method=method, route=route):
                         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
@@ -62,10 +67,10 @@ class LocalRequestSecurityTests(LocalServerTestCase):
                             response = connection.getresponse()
                             body = response.read()
                             self.assertEqual(response.status, 200)
-                            self.assertEqual(body, document if method == "GET" else b"")
+                            self.assertEqual(body, served if method == "GET" else b"")
                             content_length = response.getheader("Content-Length")
                             assert content_length is not None
-                            self.assertEqual(int(content_length), len(document))
+                            self.assertEqual(int(content_length), len(served))
                             policy = response.getheader("Content-Security-Policy")
                             assert policy is not None
                             self.assertIn(f"'sha256-{expected_hash}'", policy)
@@ -81,10 +86,7 @@ class LocalRequestSecurityTests(LocalServerTestCase):
         response = self.request(
             "POST",
             "/api/security/clear",
-            {
-                "Host": f"127.0.0.1:{self.server.server_port}",
-                "Origin": "https://attacker.example",
-            },
+            self.api_headers({"Origin": "https://attacker.example"}),
         )
         self.assertEqual(response.status, 403)
 
@@ -98,6 +100,35 @@ class LocalRequestSecurityTests(LocalServerTestCase):
         self.assertNotIn("unsafe-inline", script_policy)
         self.assertIn("sha256-", script_policy)
         self.assertEqual(response.getheader("X-Frame-Options"), "DENY")
+
+
+class ApiTokenTests(LocalServerTestCase):
+    def test_rejects_missing_token(self) -> None:
+        response = self.request("GET", "/api/flows", self.local_headers())
+        self.assertEqual(response.status, 403)
+
+    def test_rejects_wrong_token(self) -> None:
+        response = self.request(
+            "GET",
+            "/api/flows",
+            self.local_headers({"X-Pulsepath-Token": "not-the-session-token"}),
+        )
+        self.assertEqual(response.status, 403)
+
+    def test_accepts_the_session_token(self) -> None:
+        response = self.request("GET", "/api/does-not-exist", self.api_headers())
+        self.assertEqual(response.status, 404)
+
+    def test_post_rejects_missing_or_wrong_token(self) -> None:
+        origin = {"Origin": f"http://127.0.0.1:{self.server.server_port}"}
+        missing = self.request("POST", "/api/security/clear", self.local_headers(origin))
+        self.assertEqual(missing.status, 403)
+        wrong = self.request(
+            "POST",
+            "/api/security/clear",
+            self.api_headers({**origin, "X-Pulsepath-Token": "not-the-session-token"}),
+        )
+        self.assertEqual(wrong.status, 403)
 
 
 class StaticFileExposureTests(LocalServerTestCase):
@@ -130,16 +161,13 @@ class StaticFileExposureTests(LocalServerTestCase):
 class FetchMetadataTests(LocalServerTestCase):
     def same_origin_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         port = self.server.server_port
-        headers = {
-            "Host": f"127.0.0.1:{port}",
-            "Origin": f"http://127.0.0.1:{port}",
-        }
+        headers = self.api_headers({"Origin": f"http://127.0.0.1:{port}"})
         if extra:
             headers.update(extra)
         return headers
 
     def test_rejects_missing_origin_on_mutation(self) -> None:
-        response = self.request("POST", "/api/security/clear", self.local_headers())
+        response = self.request("POST", "/api/security/clear", self.api_headers())
         self.assertEqual(response.status, 403)
 
     def test_rejects_cross_site_mutation_via_fetch_metadata(self) -> None:
@@ -169,7 +197,7 @@ class TraceApiTests(LocalServerTestCase):
 
     def post_json(self, path: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
         if headers is None:
-            headers = self.local_headers({"Origin": f"http://127.0.0.1:{self.server.server_port}"})
+            headers = self.api_headers({"Origin": f"http://127.0.0.1:{self.server.server_port}"})
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
         try:
             connection.request("POST", path, headers=headers)
@@ -199,7 +227,7 @@ class TraceApiTests(LocalServerTestCase):
                       {"Origin": f"http://127.0.0.1:{self.server.server_port}", "Sec-Fetch-Site": "cross-site"},
                       {"Origin": f"http://127.0.0.1:{self.server.server_port}", "Host": "attacker.example"}):
             with self.subTest(headers=extra):
-                status, _ = self.post_json("/api/traces/flow-1/stop", self.local_headers(extra))
+                status, _ = self.post_json("/api/traces/flow-1/stop", self.api_headers(extra))
                 self.assertEqual(status, 403)
         self.traces.stop.assert_not_called()
         self.traces.start.assert_not_called()
@@ -239,7 +267,7 @@ class InvestigateApiTests(LocalServerTestCase):
 
     def get_json(self, path: str) -> tuple[int, dict]:
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
-        connection.request("GET", path, headers=self.local_headers())
+        connection.request("GET", path, headers=self.api_headers())
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
         connection.close()
@@ -257,7 +285,7 @@ class InvestigateApiTests(LocalServerTestCase):
         }])
         finding_id = self.history.summary()["findings"][0]["id"]
         body = json.dumps({"finding_ids": [finding_id]}).encode()
-        headers = self.local_headers({
+        headers = self.api_headers({
             "Origin": f"http://127.0.0.1:{self.server.server_port}",
             "Content-Type": "application/json",
             "Content-Length": str(len(body)),
@@ -322,9 +350,9 @@ class InvestigateApiTests(LocalServerTestCase):
         self.assertEqual(body["active"], [])
 
     def test_head_matches_get_for_api_routes(self) -> None:
-        ok = self.request("HEAD", "/api/investigate?ip=104.16.0.1", self.local_headers())
+        ok = self.request("HEAD", "/api/investigate?ip=104.16.0.1", self.api_headers())
         self.assertEqual(ok.status, 200)
-        missing = self.request("HEAD", "/api/does-not-exist", self.local_headers())
+        missing = self.request("HEAD", "/api/does-not-exist", self.api_headers())
         self.assertEqual(missing.status, 404)
 
     def test_history_dump_endpoint_is_gone(self) -> None:
@@ -345,11 +373,10 @@ class RequestBodyLimitTests(LocalServerTestCase):
         response = self.request(
             "POST",
             "/api/security/recording",
-            {
-                "Host": f"127.0.0.1:{port}",
+            self.api_headers({
                 "Origin": f"http://127.0.0.1:{port}",
                 "Content-Type": "application/json",
-            },
+            }),
             body=body,
         )
         self.assertEqual(response.status, 413)

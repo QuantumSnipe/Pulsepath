@@ -1021,6 +1021,11 @@
       const securityPanel = document.getElementById("securityPanel");
       const findingsList = document.getElementById("findingsList");
 
+      function apiHeaders(extra) {
+        const meta = document.querySelector('meta[name="pulsepath-token"]');
+        return { "X-Pulsepath-Token": meta ? meta.content : "", ...(extra || {}) };
+      }
+
       // The map needs an origin before the user grants Location Services.
       // Derive an approximate one locally from the Mac's IANA time zone:
       // nothing leaves the machine and no permission prompt is needed.
@@ -1100,7 +1105,7 @@
             { name: "Zurich", detail: "Your Mac · 192.168.1.42", lon: 8.54, lat: 47.38 },
             { name: "Frankfurt", detail: "ISP exchange · AS3320", lon: 8.68, lat: 50.11 },
             { name: "London", detail: "Transit edge · AS1299", lon: -0.12, lat: 51.5 },
-            { name: "Ashburn", detail: "Cloud edge · 104.21.16.1", lon: -77.49, lat: 39.04 }
+            { name: "Ashburn", detail: "Cloud edge · 192.0.2.16", lon: -77.49, lat: 39.04 }
           ],
           protocols: ["DNS · UDP 53", "TLS 1.3 · TCP 443", "HTTPS · HTTP/2"],
           steps: [["VS Code", "event"], ["DNS", "12 ms"], ["TLS 1.3", "31 ms"], ["Preview", "44 ms"]]
@@ -1112,7 +1117,7 @@
             { name: "Zurich", detail: "Your Mac · 192.168.1.42", lon: 8.54, lat: 47.38 },
             { name: "Basel", detail: "Provider edge · AS6830", lon: 7.59, lat: 47.56 },
             { name: "Paris", detail: "CDN exchange · AS20940", lon: 2.35, lat: 48.86 },
-            { name: "Dublin", detail: "Message gateway · 34.240.0.1", lon: -6.26, lat: 53.35 }
+            { name: "Dublin", detail: "Message gateway · 198.51.100.24", lon: -6.26, lat: 53.35 }
           ],
           protocols: ["DNS · UDP 53", "QUIC · UDP 443", "Encrypted payload"],
           steps: [["Messenger", "event"], ["DNS", "7 ms"], ["QUIC", "18 ms"], ["Gateway", "17 ms"]]
@@ -1124,7 +1129,7 @@
             { name: "Zurich", detail: "Terminal · 192.168.1.42", lon: 8.54, lat: 47.38 },
             { name: "Amsterdam", detail: "Internet exchange · AS1200", lon: 4.9, lat: 52.37 },
             { name: "Reykjavik", detail: "Transatlantic transit", lon: -21.94, lat: 64.15 },
-            { name: "New York", detail: "API region · 18.210.0.1", lon: -74.0, lat: 40.71 }
+            { name: "New York", detail: "API region · 203.0.113.24", lon: -74.0, lat: 40.71 }
           ],
           protocols: ["DNS · UDP 53", "TLS 1.3 · TCP 443", "REST · HTTP/2"],
           steps: [["Terminal", "event"], ["DNS", "14 ms"], ["TLS 1.3", "52 ms"], ["API", "60 ms"]]
@@ -1136,7 +1141,7 @@
             { name: "Zurich", detail: "JetBrains · 192.168.1.42", lon: 8.54, lat: 47.38 },
             { name: "Milan", detail: "European transit · AS6762", lon: 9.19, lat: 45.46 },
             { name: "Dubai", detail: "Backbone exchange · AS8966", lon: 55.27, lat: 25.2 },
-            { name: "Singapore", detail: "Git mirror · 13.250.0.1", lon: 103.82, lat: 1.35 }
+            { name: "Singapore", detail: "Git mirror · 192.0.2.24", lon: 103.82, lat: 1.35 }
           ],
           protocols: ["DNS · UDP 53", "SSH · TCP 22", "Git smart protocol"],
           steps: [["JetBrains", "event"], ["DNS", "11 ms"], ["SSH", "83 ms"], ["Git mirror", "117 ms"]]
@@ -1305,7 +1310,7 @@
             "data/ne_50m_lakes.geojson",
             "data/ne_50m_rivers_lake_centerlines_scale_rank.geojson"
           ];
-          const responses = await Promise.all(files.map(file => fetch(file, { cache: "force-cache" })));
+          const responses = await Promise.all(files.map(file => fetch(file, { cache: "force-cache", headers: apiHeaders() })));
           if (responses.some(response => !response.ok)) throw new Error("Basemap files unavailable");
           const [countries, states, lakes, rivers] = await Promise.all(responses.map(response => response.json()));
 
@@ -2769,7 +2774,7 @@
         const controller = new AbortController();
         const timer = window.setTimeout(() => controller.abort(), 6500);
         try {
-          const response = await fetch(path, { method, cache: "no-store", signal: controller.signal });
+          const response = await fetch(path, { method, cache: "no-store", signal: controller.signal, headers: apiHeaders() });
           return { response, result: await response.json() };
         } finally {
           window.clearTimeout(timer);
@@ -2999,7 +3004,7 @@
         }
         investigateMessage("Collecting local evidence…");
         try {
-          const response = await fetch(`/api/investigate?ip=${encodeURIComponent(value)}`, { cache: "no-store" });
+          const response = await fetch(`/api/investigate?ip=${encodeURIComponent(value)}`, { cache: "no-store", headers: apiHeaders() });
           const data = await response.json();
           if (!response.ok) {
             investigateMessage(data.error || "That address could not be investigated.");
@@ -3152,7 +3157,7 @@
           : [finding.id];
         const response = await fetch("/api/security/expect", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: apiHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ finding_ids: ids.filter(id => Number.isInteger(id)) })
         });
         if (!response.ok) return;
@@ -3205,7 +3210,7 @@
 
       async function pollSecurity() {
         try {
-          const response = await fetch("/api/security/summary", { cache: "no-store" });
+          const response = await fetch("/api/security/summary", { cache: "no-store", headers: apiHeaders() });
           if (!response.ok) throw new Error("security history unavailable");
           securitySummary = await response.json();
           securityButton.hidden = false;
@@ -3225,7 +3230,7 @@
         try {
           const response = await fetch("/api/security/recording", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: apiHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ enabled: !securitySummary.recording })
           });
           if (!response.ok) throw new Error("Unable to change history recording");
@@ -3239,7 +3244,7 @@
       async function clearSecurityHistory() {
         const confirmed = window.confirm("Clear all locally stored connection history and begin a new learning period?");
         if (!confirmed) return;
-        const response = await fetch("/api/security/clear", { method: "POST" });
+        const response = await fetch("/api/security/clear", { method: "POST", headers: apiHeaders() });
         if (!response.ok) return;
         securitySummary = await response.json();
         renderSecurity();
@@ -3327,7 +3332,7 @@
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 6500);
         try {
-          const response = await fetch(path, { cache: "no-store", signal: controller.signal });
+          const response = await fetch(path, { cache: "no-store", signal: controller.signal, headers: apiHeaders() });
           if (!response.ok) throw new Error("Collector request failed");
           return await response.json();
         } finally {
