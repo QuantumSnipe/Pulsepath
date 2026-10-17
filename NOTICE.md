@@ -18,11 +18,18 @@ ASN source: https://db-ip.com/db/download/ip-to-asn-lite
 
 License: https://creativecommons.org/licenses/by/4.0/
 
-## Cloudflare published IP ranges
+## Provider published IP ranges
 
-`pulsepath.py` hardcodes published Cloudflare edge prefixes so a local match can label anycast infrastructure. A match identifies the serving network, not a physical facility or an origin server.
+`install_references.py` downloads providers' published address ranges and keeps a local snapshot so a match can label the serving network. A match identifies that network, not a physical facility, an origin server, or a hosted customer. Curated networks for a few well-known apps are stored separately in `references/app-networks.json`.
 
-Source: https://www.cloudflare.com/ips/
+- Cloudflare: https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6
+- Google (`goog.json` and `cloud.json`): https://www.gstatic.com/ipranges/goog.json and https://www.gstatic.com/ipranges/cloud.json
+- AWS: https://ip-ranges.amazonaws.com/ip-ranges.json
+- Fastly: https://api.fastly.com/public-ip-list
+- Oracle: https://docs.oracle.com/iaas/tools/public_ip_ranges.json
+- DigitalOcean geofeed: https://digitalocean.com/geo/google.csv
+- GitHub `/meta`: https://api.github.com/meta
+- Apple: `17.0.0.0/8`, as registered with ARIN. No list is fetched.
 
 ## MaxMind DB reader for Python
 
