@@ -93,3 +93,40 @@ class DownloadIntegrityTests(unittest.TestCase):
         database = self.directory / "database.mmdb"
         database.write_bytes(b"\0" * 4096 + install_geoip.MMDB_METADATA_MARKER + b"trailing metadata")
         self.assertTrue(install_geoip.database_is_valid(database))
+
+    def https_response(self, payload: bytes) -> MagicMock:
+        import io
+
+        stream = io.BytesIO(payload)
+        response = MagicMock()
+        response.geturl.return_value = "https://download.db-ip.com/free/dbip-city-lite.mmdb.gz"
+        response.headers = {"Content-Length": str(len(payload))}
+        response.read.side_effect = stream.read
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        return response
+
+    def test_failed_install_leaves_no_partial_files(self) -> None:
+        truncated = gzip.compress(b"\0" * 4096)[:-12]
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(install_geoip, "DATA_DIR", Path(directory)), \
+                patch.object(install_geoip.urllib.request, "urlopen", return_value=self.https_response(truncated)):
+            with self.assertRaises(EOFError):
+                install_geoip.download_database("city", "1 MB")
+            self.assertEqual(list(Path(directory).iterdir()), [], "a failed download must not leave .part files")
+
+    def test_marker_only_garbage_is_refused_before_install(self) -> None:
+        garbage = b"\0" * 4096 + install_geoip.MMDB_METADATA_MARKER + b"junk"
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(install_geoip, "DATA_DIR", Path(directory)), \
+                patch.object(install_geoip.urllib.request, "urlopen",
+                             return_value=self.https_response(gzip.compress(garbage))):
+            with self.assertRaises(RuntimeError) as caught:
+                install_geoip.download_database("city", "1 MB")
+            self.assertIn("not a valid MaxMind-format database", str(caught.exception))
+            self.assertEqual(list(Path(directory).iterdir()), [], "refused data must not be installed or left behind")
+
+    def test_reader_rejects_marker_only_garbage(self) -> None:
+        database = self.directory / "database.mmdb"
+        database.write_bytes(b"\0" * 4096 + install_geoip.MMDB_METADATA_MARKER + b"junk")
+        self.assertFalse(install_geoip.database_opens(database))

@@ -78,6 +78,32 @@ def database_is_valid(database: Path) -> bool:
         return MMDB_METADATA_MARKER in handle.read()
 
 
+def database_opens(database: Path) -> bool:
+    """Open the file with the MMDB reader; the marker alone is easy to fake.
+
+    install_reader() runs before any download, so a missing reader means the
+    database cannot be checked and is refused.
+    """
+    if VENDOR_DIR.exists() and str(VENDOR_DIR) not in sys.path:
+        # Append, as pulsepath.py does, so vendor/ cannot shadow the stdlib.
+        sys.path.append(str(VENDOR_DIR))
+    try:
+        import maxminddb
+    except ImportError:
+        return False
+    try:
+        reader = maxminddb.open_database(str(database))
+    except Exception:
+        return False
+    try:
+        metadata = reader.metadata()
+        return bool(metadata.database_type) and metadata.node_count > 0
+    except Exception:
+        return False
+    finally:
+        reader.close()
+
+
 def reader_install_command() -> list[str]:
     return [
         sys.executable,
@@ -116,6 +142,7 @@ def download_database(kind: str, size_label: str) -> Path:
         if database.exists():
             print(f"Using existing {database.name}")
             return database
+        temporary_database = database.with_suffix(".mmdb.part")
         try:
             print(f"Downloading DB-IP {kind.upper()} Lite {release} ({size_label})…")
             request = urllib.request.Request(url, headers={"User-Agent": "Pulsepath/0.1"})
@@ -126,22 +153,22 @@ def download_database(kind: str, size_label: str) -> Path:
                 copy_stream(response, archive, total=total)
             print()
             print("Decompressing database…")
-            temporary_database = database.with_suffix(".mmdb.part")
             decompress_archive(archive, temporary_database)
-            if not database_is_valid(temporary_database):
-                temporary_database.unlink(missing_ok=True)
-                archive.unlink(missing_ok=True)
+            if not database_is_valid(temporary_database) or not database_opens(temporary_database):
                 raise RuntimeError(
                     f"The downloaded {database.name} is not a valid MaxMind-format database; refusing to install it."
                 )
             temporary_database.replace(database)
-            archive.unlink(missing_ok=True)
             return database
         except urllib.error.HTTPError as error:
-            archive.unlink(missing_ok=True)
             if error.code == 404:
                 continue
             raise
+        finally:
+            # Every exit, including a truncated gzip or a size-cap refusal,
+            # leaves no partial archive or unverified database behind.
+            archive.unlink(missing_ok=True)
+            temporary_database.unlink(missing_ok=True)
     raise RuntimeError(f"No current DB-IP {kind.upper()} Lite release could be downloaded.")
 
 

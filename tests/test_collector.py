@@ -282,6 +282,24 @@ class TraceLifecycleTests(unittest.TestCase):
             [mock.call(timeout=pulsepath.TRACE_TIMEOUT_SECONDS), mock.call(timeout=1)],
         )
 
+    def test_trace_argument_is_rebuilt_from_the_parsed_address(self) -> None:
+        self.assertEqual(pulsepath.trace_target_argument("203.0.113.5"), (4, "203.0.113.5"))
+        self.assertEqual(pulsepath.trace_target_argument("2001:0db8::0001"), (6, "2001:db8::1"))
+        self.assertEqual(pulsepath.trace_target_argument("fe80::1%en0"), (6, "fe80::1%en0"))
+        for hostile in ("2001:db8::1%-x;touch PWNED", "2001:db8::1%", "203.0.113.5%en0", "-203.0.113.5"):
+            with self.subTest(target=hostile), self.assertRaises(ValueError):
+                pulsepath.trace_target_argument(hostile)
+
+    def test_raw_scope_suffix_never_reaches_the_probe(self) -> None:
+        self.collector.get_flow.return_value = mock.Mock(remote_ip="2001:db8::1%-x;touch PWNED", scope="public")
+        run = self.pending_run()
+        with mock.patch.object(pulsepath.subprocess, "Popen") as launch:
+            self.manager._run(run)
+        launch.assert_not_called()
+        job = self.manager.get("flow-1")
+        assert job is not None
+        self.assertEqual(job["status"], "error")
+
     def test_stop_before_worker_launch_prevents_probe(self) -> None:
         run = self.pending_run()
         job, error = self.manager.stop("flow-1")

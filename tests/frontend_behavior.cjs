@@ -63,7 +63,10 @@ class Element {
   releasePointerCapture() { this.capturedPointer = null; }
 }
 
-function createApp(protocol = "http:", { reducedMotion = false, hidden = false, timeZone = null } = {}) {
+// A stand-in for the token start.command puts in the launch URL fragment.
+const LAUNCH_TOKEN = "launch-token-for-frontend-tests";
+
+function createApp(protocol = "http:", { reducedMotion = false, hidden = false, timeZone = null, hash = `#k=${LAUNCH_TOKEN}`, stored = {} } = {}) {
   const elements = new Map();
   for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b([^>]*\bid="([^"]+)"[^>]*)>/gi)) {
     const element = new Element(match[1]);
@@ -89,14 +92,22 @@ function createApp(protocol = "http:", { reducedMotion = false, hidden = false, 
   let nextTimer = 1;
   const frames = new Map();
   let nextFrame = 1;
-  const location = { protocol, hostname: "127.0.0.1", origin: "http://127.0.0.1:8765" };
+  const location = { protocol, hostname: "127.0.0.1", origin: "http://127.0.0.1:8765", pathname: "/", search: "", hash };
+  const storage = new Map(Object.entries(stored));
+  const sessionStorage = {
+    getItem: key => (storage.has(key) ? storage.get(key) : null),
+    setItem: (key, value) => storage.set(key, String(value)),
+  };
+  const historyCalls = [];
+  const history = { replaceState: (state, title, url) => { historyCalls.push(url); location.hash = ""; } };
+  const requests = [];
   const motionEvents = new Map();
   const motionPreference = {
     matches: reducedMotion,
     addEventListener: (name, callback) => motionEvents.set(name, callback),
   };
   const window = {
-    location,
+    location, sessionStorage, history,
     setTimeout: callback => { const id = nextTimer++; timers.set(id, callback); return id; },
     clearTimeout: id => timers.delete(id),
     addEventListener() {},
@@ -114,6 +125,7 @@ function createApp(protocol = "http:", { reducedMotion = false, hidden = false, 
     cancelAnimationFrame: id => frames.delete(id),
     fetch: async (url, options) => {
       if (url.startsWith("data/")) return { ok: false };
+      requests.push({ url, headers: { ...(options?.headers || {}) } });
       return responseFor(url, options);
     },
   });
@@ -130,7 +142,7 @@ function createApp(protocol = "http:", { reducedMotion = false, hidden = false, 
   })();`);
   vm.runInContext(source, context, { filename: "index.html" });
   return {
-    ...context.app, elements, timers, frames,
+    ...context.app, elements, timers, frames, storage, historyCalls, requests,
     setReducedMotion: matches => {
       motionPreference.matches = matches;
       motionEvents.get("change")?.({ matches });
@@ -182,6 +194,39 @@ function row(now, overrides = {}) {
     interface: "en0", last_seen: now, socket_count: 1, active: true,
     ...overrides,
   };
+}
+
+async function checkSessionTokenBootstrap() {
+  // start.command opens /#k=<token>: keep it for this tab, clear the bar, send it.
+  const launched = createApp();
+  assert.equal(launched.storage.get("pulsepath-token"), LAUNCH_TOKEN);
+  assert.deepEqual(launched.historyCalls, ["/"], "The token fragment is cleared from the address bar");
+  await launched.poll([row(launched.now())]);
+  assert.equal(launched.state().collectorState, "live");
+  assert.ok(launched.requests.length > 0);
+  assert.ok(launched.requests.every(request => request.headers["X-Pulsepath-Token"] === LAUNCH_TOKEN));
+
+  // A reload of the same tab has no fragment but still has sessionStorage.
+  const reloaded = createApp("http:", { hash: "", stored: { "pulsepath-token": LAUNCH_TOKEN } });
+  assert.deepEqual(reloaded.historyCalls, []);
+  await reloaded.poll([row(reloaded.now())]);
+  assert.equal(reloaded.state().collectorState, "live");
+
+  // A bookmark of / alone: no request is sent and the page says how to launch.
+  const bookmarked = createApp("http:", { hash: "" });
+  await bookmarked.poll([row(bookmarked.now())]);
+  assert.equal(bookmarked.state().collectorState, "unauthorized");
+  assert.equal(bookmarked.requests.filter(request => request.url.startsWith("/api/")).length, 0);
+  assert.match(bookmarked.elements.get("sourceDescription").textContent, /start\.command/);
+  assert.match(bookmarked.elements.get("selectedTitle").textContent, /start\.command/);
+
+  // A stale token after a collector restart gets the same guidance.
+  const stale = createApp("http:", { hash: "", stored: { "pulsepath-token": "token-from-an-earlier-launch" } });
+  stale.respond(() => ({ ok: false, status: 403, json: async () => ({ error: "rejected" }) }));
+  for (const [id, callback] of stale.timers) if (callback.name === "pollCollector") stale.timers.delete(id);
+  await stale.pollCollector();
+  assert.equal(stale.state().collectorState, "unauthorized");
+  assert.match(stale.elements.get("sourceDescription").textContent, /start\.command/);
 }
 
 async function checkTraceControls() {
@@ -1086,6 +1131,7 @@ async function main() {
   const demoOrder = ordered.state().flows.map(flow => flow.id).join(",");
   ordered.elements.get("modeButton").click();
   assert.notEqual(demoOrder, "newer,older", "Simulation keeps its example order");
+  await checkSessionTokenBootstrap();
   checkMapGestures();
   await checkTraceControls();
   await checkTraceShortcut();

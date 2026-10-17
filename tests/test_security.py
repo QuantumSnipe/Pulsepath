@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import http.client
 import base64
+import os
+import socket
 import hashlib
 import json
 import tempfile
@@ -56,7 +58,7 @@ class LocalRequestSecurityTests(LocalServerTestCase):
             for script in (b"console.log('first');", b"console.log('updated');"):
                 document = b"<!doctype html><script>" + script + b"</script>"
                 page.write_bytes(document)
-                served = pulsepath.with_api_token(document)
+                served = document
                 expected_hash = base64.b64encode(hashlib.sha256(script).digest()).decode("ascii")
                 self.assertEqual(pulsepath.index_script_hash(served), expected_hash)
                 for method, route in (("GET", "/"), ("GET", "/index.html?refresh=1"), ("HEAD", "/")):
@@ -131,7 +133,97 @@ class ApiTokenTests(LocalServerTestCase):
         self.assertEqual(wrong.status, 403)
 
 
+    def test_page_never_carries_the_session_token(self) -> None:
+        for method in ("GET", "HEAD"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+            try:
+                connection.request(method, "/", headers=self.local_headers())
+                response = connection.getresponse()
+                body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertNotIn(pulsepath.API_TOKEN.encode("ascii"), body)
+                self.assertNotIn(b"pulsepath-token\"", body.split(b"<script>", 1)[0])
+                for _, value in response.getheaders():
+                    self.assertNotIn(pulsepath.API_TOKEN, value)
+            finally:
+                connection.close()
+
+    def test_non_ascii_token_header_is_refused_not_crashed(self) -> None:
+        # http.client sends str header values as latin-1, i.e. raw 0xE9 bytes.
+        response = self.request("GET", "/api/flows", self.local_headers({"X-Pulsepath-Token": "\u00e9\u00e9"}))
+        self.assertEqual(response.status, 403)
+        self.assertFalse(pulsepath.api_token_matches("\u00e9" * 43))
+        self.assertTrue(pulsepath.api_token_matches(pulsepath.API_TOKEN))
+        self.assertFalse(pulsepath.api_token_matches(None))
+
+
+class TokenFileTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.addCleanup(self.temporary_directory.cleanup)
+
+    def test_token_file_is_private_to_this_user(self) -> None:
+        runtime = self.root / "Pulsepath"
+        path = pulsepath.write_token_file("token-for-test-only", runtime)
+        self.assertEqual(path.read_text(encoding="ascii"), "token-for-test-only")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+        pulsepath.remove_token_file(path, "a-different-launch")
+        self.assertTrue(path.exists(), "shutdown must not remove another launch's token")
+        pulsepath.remove_token_file(path, "token-for-test-only")
+        self.assertFalse(path.exists())
+
+    def test_existing_runtime_folder_is_tightened(self) -> None:
+        runtime = self.root / "Pulsepath"
+        runtime.mkdir(mode=0o755)
+        os.chmod(runtime, 0o777)
+        pulsepath.write_token_file("token-for-test-only", runtime)
+        self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+
+    def test_planted_token_symlink_is_replaced_not_followed(self) -> None:
+        runtime = self.root / "Pulsepath"
+        runtime.mkdir(mode=0o700)
+        victim = self.root / "victim.txt"
+        victim.write_text("keep me", encoding="utf-8")
+        (runtime / "token").symlink_to(victim)
+        path = pulsepath.write_token_file("token-for-test-only", runtime)
+        self.assertFalse(path.is_symlink())
+        self.assertEqual(victim.read_text(encoding="utf-8"), "keep me")
+
+    def test_symlinked_runtime_folder_is_refused(self) -> None:
+        real = self.root / "elsewhere"
+        real.mkdir()
+        link = self.root / "Pulsepath"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(RuntimeError):
+            pulsepath.write_token_file("token-for-test-only", link)
+        self.assertFalse((real / "token").exists())
+
+    def test_runtime_folder_matches_the_launch_scripts(self) -> None:
+        with patch.dict(os.environ, {"HOME": "/Users/example"}):
+            self.assertEqual(pulsepath.runtime_dir(), Path("/Users/example/Library/Caches/Pulsepath"))
+
+
 class StaticFileExposureTests(LocalServerTestCase):
+    def test_symlinked_basemap_is_not_served(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            data_dir = app_dir / "data"
+            data_dir.mkdir()
+            (data_dir / "real.geojson").write_text("{}", encoding="utf-8")
+            secret = app_dir / "secret.txt"
+            secret.write_text("not a basemap", encoding="utf-8")
+            (data_dir / "leak.geojson").symlink_to(secret)
+            (data_dir / "alias.geojson").symlink_to(data_dir / "real.geojson")
+            with patch.object(pulsepath, "APP_DIR", app_dir), patch.object(pulsepath, "DATA_DIR", data_dir):
+                self.assertEqual(self.request("GET", "/data/real.geojson", self.local_headers()).status, 200)
+                for path in ("/data/leak.geojson", "/data/alias.geojson"):
+                    for method in ("GET", "HEAD"):
+                        response = self.request(method, path, self.local_headers())
+                        self.assertEqual(response.status, 404, f"{method} {path} must not follow a symlink")
+
+
     def test_does_not_serve_private_history_database(self) -> None:
         response = self.request("GET", "/data/pulsepath-history.sqlite3", self.local_headers())
         self.assertEqual(response.status, 404)
@@ -364,6 +456,25 @@ class InvestigateApiTests(LocalServerTestCase):
         self.assertEqual(status, 200)
         self.assertIsNotNone(body["network_reference"])
         self.assertEqual(body["history"], [])
+
+
+class RequestTimeoutTests(LocalServerTestCase):
+    def test_stalled_body_releases_its_connection(self) -> None:
+        self.assertLessEqual(pulsepath.PulsepathHandler.timeout, 10)
+        with patch.object(pulsepath.PulsepathHandler, "timeout", 0.3):
+            port = self.server.server_port
+            with socket.create_connection(("127.0.0.1", port), timeout=3) as stalled:
+                stalled.sendall(
+                    (
+                        "POST /api/security/recording HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\n"
+                        f"X-Pulsepath-Token: {pulsepath.API_TOKEN}\r\n"
+                        "Content-Type: application/json\r\nContent-Length: 100\r\n\r\n{"
+                    ).encode("ascii")
+                )
+                stalled.settimeout(3)
+                # The server gives up on the body and closes the socket.
+                self.assertEqual(stalled.recv(1024), b"")
 
 
 class RequestBodyLimitTests(LocalServerTestCase):

@@ -179,8 +179,8 @@ Reach for the collector log first. `make start` runs the collector in the backgr
 
 **The browser does not open, or the page is blank**
 
-- Open `http://127.0.0.1:4173/` manually. `make start` waits for the local API before it opens the browser.
-- If the page loads but stays empty, check the log and the collector status in the top right corner, then reload.
+- Run `make start` again. It reopens the running collector with this launch's session token. Opening `http://127.0.0.1:4173/` by hand or from a bookmark shows the page, but it cannot reach the collector and asks you to launch with `start.command`. After `make run`, run `make start` in a second terminal to open the page.
+- If the page loads but stays empty, check the log and the collector status in the top right corner, then reload. "Session token missing" means the tab was not opened by `make start`, or the collector restarted since; run `make start` again.
 
 **`make stop` says "Pulsepath is not running"**
 

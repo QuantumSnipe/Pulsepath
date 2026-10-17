@@ -1021,9 +1021,28 @@
       const securityPanel = document.getElementById("securityPanel");
       const findingsList = document.getElementById("findingsList");
 
+      // The collector never serves its session token. start.command opens the
+      // page as /#k=<token>; browsers keep the fragment out of requests and
+      // Referer headers. Keep it for this tab only, then clear the address bar.
+      const API_TOKEN_KEY = "pulsepath-token";
+      const apiToken = (() => {
+        const match = /^#k=([A-Za-z0-9_-]{16,128})$/.exec(location.hash || "");
+        let token = match ? match[1] : "";
+        try {
+          if (match) window.sessionStorage.setItem(API_TOKEN_KEY, token);
+          else token = window.sessionStorage.getItem(API_TOKEN_KEY) || "";
+        } catch (error) {
+          // Storage can be disabled; a token from this launch still works until reload.
+        }
+        if (location.hash && window.history?.replaceState) {
+          window.history.replaceState(null, "", `${location.pathname || "/"}${location.search || ""}`);
+        }
+        return token;
+      })();
+      let apiTokenRejected = false;
+
       function apiHeaders(extra) {
-        const meta = document.querySelector('meta[name="pulsepath-token"]');
-        return { "X-Pulsepath-Token": meta ? meta.content : "", ...(extra || {}) };
+        return { "X-Pulsepath-Token": apiToken, ...(extra || {}) };
       }
 
       // The map needs an origin before the user grants Location Services.
@@ -2150,10 +2169,12 @@
         renderMapExplanation();
         const flow = flows[selected];
         if (!flow) {
-          document.getElementById("selectedTitle").textContent = activitySearch.value.trim() ? "No matching connections" : collectorState === "connecting" ? "Connecting to collector…" : "No recent connections";
+          document.getElementById("selectedTitle").textContent = activitySearch.value.trim() ? "No matching connections" : collectorState === "connecting" ? "Connecting to collector…" : collectorState === "unauthorized" ? "Open Pulsepath with start.command" : "No recent connections";
           document.getElementById("selectedSubtitle").textContent = collectorState === "live"
             ? "No connection metadata is currently visible."
-            : "Waiting for fresh local connection metadata.";
+            : collectorState === "unauthorized"
+              ? "This tab has no valid session token. Launch with start.command (or make start) instead of a bookmark of the address alone."
+              : "Waiting for fresh local connection metadata.";
           document.getElementById("traceName").textContent = "Select a connection to inspect its metadata";
           document.getElementById("traceTime").textContent = "—";
           document.getElementById("traceSteps").replaceChildren();
@@ -3252,7 +3273,7 @@
 
       function renderSourceStatus() {
         const demo = sourceMode === "simulation";
-        const labels = { connecting: "Connecting to collector", live: "Live local metadata", stale: "Stale collector data", disconnected: "Collector disconnected" };
+        const labels = { connecting: "Connecting to collector", live: "Live local metadata", stale: "Stale collector data", disconnected: "Collector disconnected", unauthorized: "Session token missing" };
         document.getElementById("liveStateText").textContent = (demo ? "Simulation" : labels[collectorState]) + (paused ? " · animation paused" : "");
         mapShell.classList.toggle("live-local", !demo);
         mapShell.classList.toggle("collector-unavailable", !demo && collectorState !== "live");
@@ -3267,7 +3288,9 @@
           : collectorStatus?.geoip_available ? "Offline city estimates active." : "External geolocation and payload capture are disabled.";
         document.getElementById("sourceDescription").textContent = demo
           ? "Generated examples. Choose Use live activity to inspect the local collector."
-          : `${lastSeen} ${collectorState === "disconnected" ? "Reconnecting automatically." : collectorState === "stale" ? "Collection is delayed or failing; recent connections are static." : intelligence}${collectorStatus?.nettop_error ? " Some process metadata is unavailable." : ""}`;
+          : collectorState === "unauthorized"
+            ? "This tab has no valid session token. Open Pulsepath with start.command (or make start); a bookmark of http://127.0.0.1:4173/ alone cannot reach the collector, and a collector restart needs a fresh launch."
+            : `${lastSeen} ${collectorState === "disconnected" ? "Reconnecting automatically." : collectorState === "stale" ? "Collection is delayed or failing; recent connections are static." : intelligence}${collectorStatus?.nettop_error ? " Some process metadata is unavailable." : ""}`;
       }
 
       function refreshLocalDisplay() {
@@ -3333,6 +3356,7 @@
         const timeout = window.setTimeout(() => controller.abort(), 6500);
         try {
           const response = await fetch(path, { cache: "no-store", signal: controller.signal, headers: apiHeaders() });
+          if (response.status === 403) apiTokenRejected = true;
           if (!response.ok) throw new Error("Collector request failed");
           return await response.json();
         } finally {
@@ -3342,6 +3366,13 @@
 
       async function pollCollector() {
         if (location.protocol === "file:") return;
+        if (!apiToken) {
+          // Without a token every request would be refused; say how to fix it.
+          collectorState = "unauthorized";
+          refreshLocalDisplay();
+          renderSourceStatus();
+          return;
+        }
         try {
           const [status, payload] = await Promise.all([collectorJson("/api/status"), collectorJson("/api/flows")]);
           if (!Array.isArray(payload.flows)) throw new Error("Invalid collector response");
@@ -3353,7 +3384,8 @@
           latestRawFlows = payload.flows;
           document.getElementById("geoAttribution").hidden = !(status.geoip_available || status.asn_available);
         } catch (error) {
-          collectorState = "disconnected";
+          collectorState = apiTokenRejected ? "unauthorized" : "disconnected";
+          apiTokenRejected = false;
         } finally {
           refreshLocalDisplay();
           renderSourceStatus();
