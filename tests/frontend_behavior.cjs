@@ -966,6 +966,35 @@ async function checkGeoAttribution() {
   assert.equal(attribution.hidden, true, "A status without either database hides the attribution again");
 }
 
+async function checkUnknownTimeZoneOrigin() {
+  // A zone that matches neither a known city nor a known region must not
+  // place the Mac anywhere in particular, least of all a hardcoded city.
+  const app = createApp("http:", { timeZone: "Etc/UTC" });
+  assert.equal(app.elements.get("locationStatus").textContent, "Origin: unknown");
+  app.elements.get("modeButton").click();
+  assert.equal(app.state().sourceMode, "simulation");
+  for (const flow of app.state().flows) {
+    const start = flow.points[0];
+    assert.equal(start.name, "Unknown origin", `${flow.id} starts at the neutral origin`);
+    assert.deepEqual([start.lon, start.lat], [0, 0], `${flow.id} uses the neutral 0°, 0° anchor`);
+    assert.doesNotMatch(JSON.stringify(flow), /zurich/i, `${flow.id} names no hardcoded city`);
+    assert.match(flow.subtitle, /^Unknown origin → /);
+  }
+  app.elements.get("modeButton").click();
+  await app.poll([row(app.now())]);
+  const live = app.state().flows[0];
+  assert.deepEqual([live.points[0].lon, live.points[0].lat], [0, 0], "Live flows share the neutral origin");
+  assert.doesNotMatch(JSON.stringify(live), /zurich/i);
+  const paths = app.elements.get("routeLayer").querySelectorAll(".route-base");
+  assert.ok(paths.length > 0, "A route is still drawn from the neutral origin");
+  assert.ok(paths.every(path => !/NaN|undefined/.test(path.getAttribute("d") || "")), "Neutral origin produces finite curves");
+
+  const known = createApp("http:", { timeZone: "Europe/Zurich" });
+  assert.match(known.elements.get("locationStatus").textContent, /^Origin: Zurich · time zone estimate$/, "Known zones keep their city estimate");
+  const region = createApp("http:", { timeZone: "Europe/Andorra" });
+  assert.match(region.elements.get("locationStatus").textContent, /^Origin: Europe · time zone estimate$/, "Unlisted zones in a known region keep the region estimate");
+}
+
 async function main() {
   const app = createApp();
   assert.equal(app.state().sourceMode, "live", "HTTP startup should wait for the collector");
@@ -1148,7 +1177,8 @@ async function main() {
   await checkConstellationGroupsAndCap();
   await checkConstellationMotionAndFreshness();
   await checkGeoAttribution();
-  console.log("Frontend polling, recovery, empty selection, simulation, freshness, evidence, hop disclosure, motion lifecycle, visual style, constellation, and attribution checks passed.");
+  await checkUnknownTimeZoneOrigin();
+  console.log("Frontend polling, recovery, empty selection, simulation, freshness, evidence, hop disclosure, motion lifecycle, visual style, constellation, attribution, and unknown time zone origin checks passed.");
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

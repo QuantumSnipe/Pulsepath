@@ -1105,13 +1105,15 @@
         }
         const region = REGION_ORIGINS[zone.split("/")[0]];
         if (region) return { ...region, zone };
-        return { lon: 8.54, lat: 47.38, name: "This Mac", zone: "" };
+        // Unknown zone: no city is implied. Routes still need a start, so use
+        // a neutral 0°, 0° anchor that is labeled as unknown, never as a place.
+        return { lon: 0, lat: 0, name: "Unknown origin", zone: "", unknown: true };
       }
       const originEstimate = timezoneOrigin();
       const originName = originEstimate.name;
-      const originLabel = originEstimate.zone
-        ? `Origin: ${originName} · time zone estimate`
-        : "Origin: approximate";
+      const originLabel = originEstimate.unknown
+        ? "Origin: unknown"
+        : `Origin: ${originName} · time zone estimate`;
       const fallbackOrigin = { lon: originEstimate.lon, lat: originEstimate.lat };
       let origin = { ...fallbackOrigin, active: false, accuracy: null };
       let locationWatchId = null;
@@ -1119,9 +1121,9 @@
       const demoFlows = [
         {
           id: "deploy", icon: "⌘", name: "Deploy preview", app: "Visual Studio Code", target: "preview.pulse.dev", latency: 87,
-          subtitle: "Zurich → Frankfurt → Ashburn",
+          subtitle: `${originName} → Frankfurt → Ashburn`,
           points: [
-            { name: "Zurich", detail: "Your Mac · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: originName, detail: "Your Mac · 192.168.1.42", ...fallbackOrigin },
             { name: "Frankfurt", detail: "ISP exchange · AS3320", lon: 8.68, lat: 50.11 },
             { name: "London", detail: "Transit edge · AS1299", lon: -0.12, lat: 51.5 },
             { name: "Ashburn", detail: "Cloud edge · 192.0.2.16", lon: -77.49, lat: 39.04 }
@@ -1131,9 +1133,9 @@
         },
         {
           id: "message", icon: "↗", name: "Send message", app: "Team messenger", target: "gateway.chat.example", latency: 42,
-          subtitle: "Zurich → Paris → Dublin",
+          subtitle: `${originName} → Paris → Dublin`,
           points: [
-            { name: "Zurich", detail: "Your Mac · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: originName, detail: "Your Mac · 192.168.1.42", ...fallbackOrigin },
             { name: "Basel", detail: "Provider edge · AS6830", lon: 7.59, lat: 47.56 },
             { name: "Paris", detail: "CDN exchange · AS20940", lon: 2.35, lat: 48.86 },
             { name: "Dublin", detail: "Message gateway · 198.51.100.24", lon: -6.26, lat: 53.35 }
@@ -1143,9 +1145,9 @@
         },
         {
           id: "api", icon: "{}", name: "Run API request", app: "Terminal", target: "api.sandbox.example", latency: 126,
-          subtitle: "Zurich → Amsterdam → New York",
+          subtitle: `${originName} → Amsterdam → New York`,
           points: [
-            { name: "Zurich", detail: "Terminal · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: originName, detail: "Terminal · 192.168.1.42", ...fallbackOrigin },
             { name: "Amsterdam", detail: "Internet exchange · AS1200", lon: 4.9, lat: 52.37 },
             { name: "Reykjavik", detail: "Transatlantic transit", lon: -21.94, lat: 64.15 },
             { name: "New York", detail: "API region · 203.0.113.24", lon: -74.0, lat: 40.71 }
@@ -1155,9 +1157,9 @@
         },
         {
           id: "push", icon: "⇧", name: "Git push", app: "JetBrains IDE", target: "git.example.dev", latency: 211,
-          subtitle: "Zurich → Milan → Singapore",
+          subtitle: `${originName} → Milan → Singapore`,
           points: [
-            { name: "Zurich", detail: "JetBrains · 192.168.1.42", lon: 8.54, lat: 47.38 },
+            { name: originName, detail: "JetBrains · 192.168.1.42", ...fallbackOrigin },
             { name: "Milan", detail: "European transit · AS6762", lon: 9.19, lat: 45.46 },
             { name: "Dubai", detail: "Backbone exchange · AS8966", lon: 55.27, lat: 25.2 },
             { name: "Singapore", detail: "Git mirror · 192.0.2.24", lon: 103.82, lat: 1.35 }
@@ -1174,9 +1176,9 @@
         ["packages", "↓", "Package download", "Package manager", "packages.example", "Tokyo", 139.69, 35.68, "203.0.113.41"],
         ["call", "◉", "Video call", "Video meeting", "media.example", "San Francisco", -122.42, 37.77, "203.0.113.42"]
       ].forEach(([id, icon, name, app, target, city, lon, lat, ip]) => demoFlows.push({
-        id, icon, name, app, target, latencyText: "SAMPLE", subtitle: `Zurich → ${city} · sample connection`,
+        id, icon, name, app, target, latencyText: "SAMPLE", subtitle: `${originName} → ${city} · sample connection`,
         points: [
-          {name: "Zurich", detail: "Sample local origin", lon: 8.54, lat: 47.38},
+          {name: originName, detail: "Sample local origin", ...fallbackOrigin},
           {name: city, detail: `Sample endpoint · ${ip}`, lon, lat}
         ],
         protocols: ["Sample connection metadata"],
@@ -1217,13 +1219,6 @@
       let ty = 0;
       let paused = false;
       let drag = null;
-      demoFlows.forEach(flow => {
-        flow.subtitle = flow.subtitle.replace("Zurich", originName);
-        const start = flow.points[0];
-        start.name = originName;
-        start.lon = fallbackOrigin.lon;
-        start.lat = fallbackOrigin.lat;
-      });
       locationStatus.textContent = originLabel;
 
       let packetRaf = 0;
@@ -2147,7 +2142,7 @@
         }
         if (point === flow.points[0]) {
           badge.textContent = origin.active ? "Device estimate" : "Origin estimate";
-          text.textContent = origin.active ? "Your browser supplied this device-location estimate with your permission." : "The origin is an approximate visual anchor derived from the Mac’s time zone.";
+          text.textContent = origin.active ? "Your browser supplied this device-location estimate with your permission." : originEstimate.unknown ? "The origin is unknown: the Mac’s time zone matches no known place, so the marker is a neutral display anchor at 0°, 0°, not a location." : "The origin is an approximate visual anchor derived from the Mac’s time zone.";
         } else if (point?.rejectedGeo) {
           badge.textContent = "Estimate withheld";
           text.textContent = `The offline estimate${point.geoEstimateLabel ? ` (${point.geoEstimateLabel})` : ""} did not pass the timing plausibility check. Its city position is withheld; the marker position is for display only.`;
