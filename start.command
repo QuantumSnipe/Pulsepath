@@ -11,8 +11,11 @@ else
 fi
 PID_FILE="$RUNTIME_DIR/server.pid"
 LOG_FILE="$RUNTIME_DIR/server.log"
-TOKEN_FILE="$RUNTIME_DIR/token"
-URL="http://127.0.0.1:4173/"
+PORT=4173
+# One token file per port, so a launch on 4173 never reads the token of a
+# collector that is serving on another port.
+TOKEN_FILE="$RUNTIME_DIR/token-${PORT}"
+URL="http://127.0.0.1:${PORT}/"
 
 cd "$APP_DIR" || exit 1
 
@@ -47,12 +50,30 @@ for runtime_file in "$PID_FILE" "$LOG_FILE" "$TOKEN_FILE"; do
   fi
 done
 
+# The token may only go to this checkout's collector. Check that exactly one
+# process listens on $PORT, that it runs as this user, and that it is this
+# checkout's pulsepath.py (same ps/cwd rules as stop.command). A squatter on
+# the port, or a collector from another checkout, fails the check.
+listener_is_ours() {
+  local listener_pid listener_uid command_line listener_cwd
+  listener_pid="$(/usr/sbin/lsof -nP -t -a -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)"
+  [[ "$listener_pid" =~ '^[0-9]+$' ]] || return 1
+  listener_uid="$(/bin/ps -p "$listener_pid" -o uid= 2>/dev/null)"
+  [[ "${listener_uid// /}" == "$UID" ]] || return 1
+  command_line="$(/bin/ps -ww -p "$listener_pid" -o command= 2>/dev/null)"
+  [[ "$command_line" == *"$APP_DIR/pulsepath.py"* ]] && return 0
+  # A foreground `make run` uses a relative path; require its cwd to match.
+  listener_cwd="$(/usr/sbin/lsof -a -p "$listener_pid" -d cwd -Fn 2>/dev/null | /usr/bin/sed -n 's/^n//p')"
+  [[ "$listener_cwd" == "$APP_DIR" && "$command_line" == *"pulsepath.py"* ]]
+}
+
 # Open the page with the session token in the URL fragment. Browsers never
 # send the fragment to the server or in Referer; the page moves it into
-# sessionStorage and clears it from the address bar.
+# sessionStorage and clears it from the address bar. If the listener on $PORT
+# is not this checkout's collector, open the plain page without the token.
 open_with_token() {
   local token=""
-  if [[ -f "$TOKEN_FILE" && ! -L "$TOKEN_FILE" ]]; then
+  if [[ -f "$TOKEN_FILE" && ! -L "$TOKEN_FILE" ]] && listener_is_ours; then
     token="$(<"$TOKEN_FILE")"
   fi
   if [[ "$token" =~ '^[A-Za-z0-9_-]{16,128}$' ]]; then
@@ -89,7 +110,7 @@ fi
 
 # A token left by an earlier run belongs to a collector that is gone.
 /bin/rm -f "$TOKEN_FILE"
-nohup "$python_bin" "$APP_DIR/pulsepath.py" --no-open --port 4173 >"$LOG_FILE" 2>&1 </dev/null &
+nohup "$python_bin" "$APP_DIR/pulsepath.py" --no-open --port "$PORT" >"$LOG_FILE" 2>&1 </dev/null &
 server_pid=$!
 echo "$server_pid" > "$PID_FILE"
 disown "$server_pid" 2>/dev/null

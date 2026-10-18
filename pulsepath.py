@@ -102,14 +102,16 @@ def prepare_runtime_dir(directory: Path) -> Path:
     return directory
 
 
-def write_token_file(token: str, directory: Path | None = None) -> Path:
+def write_token_file(token: str, directory: Path | None = None, port: int = 4173) -> Path:
     """Store the session token for start.command, readable by this user only.
 
-    The token is written to a fresh 0600 file that is renamed into place, so a
-    planted file or symlink named ``token`` is replaced, never followed.
+    The file is named per port (``token-4173``), so start.command never hands
+    the token of a collector on another port to whatever listens on 4173. It is
+    written to a fresh 0600 file that is renamed into place, so a planted file
+    or symlink with that name is replaced, never followed.
     """
     folder = prepare_runtime_dir(directory or runtime_dir())
-    target = folder / "token"
+    target = folder / f"token-{int(port)}"
     temporary = folder / f".token.{os.getpid()}.{secrets.token_hex(4)}"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(temporary, flags, 0o600)
@@ -2346,7 +2348,7 @@ def run() -> None:
     # Write the token only once the port is ours, so a second launch that
     # fails to bind cannot replace the running instance's token.
     try:
-        token_file = write_token_file(API_TOKEN)
+        token_file = write_token_file(API_TOKEN, port=args.port)
     except (OSError, RuntimeError) as error:
         server.server_close()
         history.close()

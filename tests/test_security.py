@@ -3,6 +3,9 @@ from __future__ import annotations
 import http.client
 import base64
 import os
+import shlex
+import subprocess
+import sys
 import socket
 import hashlib
 import json
@@ -186,7 +189,7 @@ class TokenFileTests(unittest.TestCase):
         runtime.mkdir(mode=0o700)
         victim = self.root / "victim.txt"
         victim.write_text("keep me", encoding="utf-8")
-        (runtime / "token").symlink_to(victim)
+        (runtime / "token-4173").symlink_to(victim)
         path = pulsepath.write_token_file("token-for-test-only", runtime)
         self.assertFalse(path.is_symlink())
         self.assertEqual(victim.read_text(encoding="utf-8"), "keep me")
@@ -198,11 +201,72 @@ class TokenFileTests(unittest.TestCase):
         link.symlink_to(real, target_is_directory=True)
         with self.assertRaises(RuntimeError):
             pulsepath.write_token_file("token-for-test-only", link)
-        self.assertFalse((real / "token").exists())
+        self.assertFalse((real / "token-4173").exists())
+
+    def test_token_file_is_named_per_port(self) -> None:
+        runtime = self.root / "Pulsepath"
+        path = pulsepath.write_token_file("token-for-test-only", runtime, port=4877)
+        self.assertEqual(path.name, "token-4877")
+        self.assertFalse((runtime / "token-4173").exists())
 
     def test_runtime_folder_matches_the_launch_scripts(self) -> None:
         with patch.dict(os.environ, {"HOME": "/Users/example"}):
             self.assertEqual(pulsepath.runtime_dir(), Path("/Users/example/Library/Caches/Pulsepath"))
+
+
+LISTENER_SCRIPT = """
+import socket, sys, time
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+sock.listen()
+print(sock.getsockname()[1], flush=True)
+time.sleep(30)
+"""
+
+
+@unittest.skipUnless(sys.platform == "darwin" and Path("/usr/sbin/lsof").exists() and Path("/bin/zsh").exists(), "start.command runs on macOS")
+class StartCommandListenerTests(unittest.TestCase):
+    """start.command must only hand the token to this checkout's collector."""
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.root = Path(self.temporary_directory.name).resolve()
+        self.app_dir = self.root / "checkout"
+        self.app_dir.mkdir()
+        text = (Path(__file__).resolve().parent.parent / "start.command").read_text(encoding="utf-8")
+        start = text.index("listener_is_ours() {")
+        self.helper = text[start : text.index("\n}\n", start) + 3]
+
+    def listen(self, script: Path, cwd: Path) -> int:
+        script.write_text(LISTENER_SCRIPT, encoding="utf-8")
+        process = subprocess.Popen([sys.executable, str(script)], cwd=cwd, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(process.wait, 5)
+        self.addCleanup(process.kill)
+        return int(process.stdout.readline())
+
+    def is_ours(self, port: int) -> bool:
+        script = f"APP_DIR={shlex.quote(str(self.app_dir))}\nPORT={port}\n{self.helper}\nlistener_is_ours"
+        return subprocess.run(["/bin/zsh", "-f", "-c", script], timeout=20).returncode == 0
+
+    def test_this_checkouts_collector_is_accepted(self) -> None:
+        self.assertTrue(self.is_ours(self.listen(self.app_dir / "pulsepath.py", self.root)))
+
+    def test_squatter_on_the_port_is_refused(self) -> None:
+        other = self.root / "other"
+        other.mkdir()
+        self.assertFalse(self.is_ours(self.listen(other / "squatter.py", other)))
+
+    def test_collector_from_another_checkout_is_refused(self) -> None:
+        other = self.root / "other"
+        other.mkdir()
+        self.assertFalse(self.is_ours(self.listen(other / "pulsepath.py", other)))
+
+    def test_free_port_is_refused(self) -> None:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        self.assertFalse(self.is_ours(port))
 
 
 class StaticFileExposureTests(LocalServerTestCase):
