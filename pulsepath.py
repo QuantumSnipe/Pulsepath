@@ -16,6 +16,7 @@ import posixpath
 import re
 import secrets
 import signal
+import stat
 import sqlite3
 import subprocess
 import sys
@@ -58,8 +59,11 @@ STATIC_PAGE_ROUTES = {"/", "/index.html"}
 STATIC_BASEMAP_ROUTE = re.compile(r"/data/[A-Za-z0-9_\-]+\.geojson")
 
 # One token per process. Loopback and Origin checks do not stop another local
-# process, or another macOS account, from calling /api/*. The served page
-# sends this value back; compare it with hmac.compare_digest.
+# process, or another macOS account, from calling /api/*. The token is never
+# served over HTTP: run() writes it to a 0600 file in the runtime folder, and
+# start.command opens the page with it in the URL fragment (#k=...), which the
+# browser keeps out of requests and Referer headers. The page sends it back in
+# X-Pulsepath-Token; api_token_matches compares it in constant time.
 API_TOKEN = secrets.token_urlsafe(32)
 
 # Providers' published address ranges (references/, refreshed by
@@ -74,22 +78,94 @@ if VENDOR_DIR.exists():
     sys.path.append(str(VENDOR_DIR))
 
 
-def with_api_token(document: bytes, token: str = API_TOKEN) -> bytes:
-    """Inject the session token outside the inline script.
+def runtime_dir() -> Path:
+    """Same per-user runtime folder that start.command and stop.command use."""
+    home = os.environ.get("HOME")
+    if home:
+        return Path(home) / "Library" / "Caches" / "Pulsepath"
+    return Path(os.environ.get("TMPDIR") or "/tmp") / "Pulsepath"
 
-    The script bytes stay the same, so the script-hash CSP computed from this
-    snapshot still matches. A page with no <head> gets the tag before <script>.
+
+def prepare_runtime_dir(directory: Path) -> Path:
+    """Create or adopt the runtime folder; refuse a symlink or a foreign owner."""
+    if directory.is_symlink():
+        raise RuntimeError(f"{directory} is a symlink.")
+    if not directory.exists():
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(mode=0o700)
+    info = os.lstat(directory)
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError(f"{directory} is not a directory.")
+    if info.st_uid != os.getuid():
+        raise RuntimeError(f"{directory} is not owned by this user.")
+    os.chmod(directory, 0o700)
+    return directory
+
+
+def write_token_file(token: str, directory: Path | None = None, port: int = 4173) -> Path:
+    """Store the session token for start.command, readable by this user only.
+
+    The file is named per port (``token-4173``), so start.command never hands
+    the token of a collector on another port to whatever listens on 4173. It is
+    written to a fresh 0600 file that is renamed into place, so a planted file
+    or symlink with that name is replaced, never followed.
     """
-    tag = f'<meta name="pulsepath-token" content="{token}">'.encode("ascii")
-    lowered = document.lower()
-    head = lowered.find(b"<head>")
-    if head != -1:
-        insert_at = head + len(b"<head>")
-        return document[:insert_at] + tag + document[insert_at:]
-    script = lowered.find(b"<script>")
-    if script != -1:
-        return document[:script] + tag + document[script:]
-    return tag + document
+    folder = prepare_runtime_dir(directory or runtime_dir())
+    target = folder / f"token-{int(port)}"
+    temporary = folder / f".token.{os.getpid()}.{secrets.token_hex(4)}"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+            handle.write(token)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def remove_token_file(path: Path, token: str) -> None:
+    """Remove the token file on shutdown if it still belongs to this process."""
+    try:
+        if not path.is_symlink() and hmac.compare_digest(path.read_bytes(), token.encode("ascii")):
+            path.unlink()
+    except OSError:
+        pass
+
+
+def api_token_matches(presented: str | None, token: str | None = None) -> bool:
+    """Constant-time token check that never raises on odd header bytes.
+
+    http.server decodes header values as latin-1, so any byte sequence maps to
+    a str; encoding it back compares bytes instead of non-ASCII text, which
+    hmac.compare_digest refuses with TypeError.
+    """
+    expected = (API_TOKEN if token is None else token).encode("ascii")
+    if not presented:
+        return False
+    return hmac.compare_digest(presented.encode("latin-1", "replace"), expected)
+
+
+TRACE_SCOPE_ID = re.compile(r"[A-Za-z][A-Za-z0-9]{0,15}|[0-9]{1,5}")
+
+
+def trace_target_argument(target: str) -> tuple[int, str]:
+    """Validate a trace target and return (IP version, argument for traceroute).
+
+    The argument is rebuilt from the parsed address. An IPv6 zone such as
+    ``%en0`` is kept only when it looks like an interface name or index, so a
+    raw suffix from the flow table never reaches the probe command unchanged.
+    """
+    host, separator, scope = target.partition("%")
+    address = ipaddress.ip_address(host)
+    if not separator:
+        return address.version, str(address)
+    if address.version != 6 or not TRACE_SCOPE_ID.fullmatch(scope):
+        raise ValueError("The trace target has an invalid interface scope.")
+    return address.version, f"{address}%{scope}"
 
 
 def index_script_hash(document: bytes) -> str:
@@ -1937,15 +2013,15 @@ class TraceManager:
         flow_id, target = job["flow_id"], job["target"]
         status, message, hops = "complete", None, []
         try:
-            address = ipaddress.ip_address(target.split("%", 1)[0])
-            command = TRACEROUTE6 if address.version == 6 else TRACEROUTE
+            version, argument = trace_target_argument(target)
+            command = TRACEROUTE6 if version == 6 else TRACEROUTE
             # Serialize launch and registration with stop: a stop arriving
             # before launch prevents it; one arriving after sees its process.
             with self.lock:
                 if self.jobs.get(flow_id) is not job or job["status"] != "running":
                     return
                 process = subprocess.Popen(
-                    [command, "-m", "18", "-w", "1", "-q", "1", target],
+                    [command, "-m", "18", "-w", "1", "-q", "1", argument],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -2025,6 +2101,9 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
     collector: FlowCollector
     traces: TraceManager
     history: HistoryEngine
+    # Socket timeout in seconds: a stalled request line, header, or JSON body
+    # releases its thread instead of holding it forever.
+    timeout = 10
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(APP_DIR), **kwargs)
@@ -2055,16 +2134,18 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
         self.page_script_hash = ""
         route = posixpath.normpath(unquote(urlsplit(self.path).path))
         if route not in STATIC_PAGE_ROUTES:
+            if not self._basemap_file_allowed(route):
+                self.send_error(404, "File not found")
+                return None
             return super().send_head()
         try:
-            document = with_api_token((APP_DIR / "index.html").read_bytes(), API_TOKEN)
+            # Served as-is: the page never carries the session token.
+            document = (APP_DIR / "index.html").read_bytes()
         except OSError:
             self.send_error(404, "Interface file unavailable")
             return None
         # Keep the CSP and body tied to one snapshot, even if the file changes
         # while this request is being served. GET and HEAD share this path.
-        # Hash after injection: the token sits outside <script>, so the hash
-        # still matches the inline script. If that script changes, recompute.
         self.page_script_hash = index_script_hash(document)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2131,6 +2212,18 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     @staticmethod
+    def _basemap_file_allowed(route: str) -> bool:
+        """Serve only regular files that really live in DATA_DIR, not symlinks."""
+        candidate = APP_DIR / route.lstrip("/")
+        try:
+            if candidate.is_symlink() or not candidate.is_file():
+                return False
+            candidate.resolve(strict=True).relative_to(DATA_DIR.resolve(strict=True))
+        except (OSError, ValueError):
+            return False
+        return True
+
+    @staticmethod
     def _static_route_allowed(route: str) -> bool:
         # Normalize after unquoting so encoded traversal cannot slip past the allowlist.
         clean = posixpath.normpath(unquote(route))
@@ -2191,8 +2284,7 @@ class PulsepathHandler(SimpleHTTPRequestHandler):
         self._json({"error": "Not found"}, status=404)
 
     def _api_token_accepted(self) -> bool:
-        presented = self.headers.get("X-Pulsepath-Token", "")
-        if hmac.compare_digest(presented, API_TOKEN):
+        if api_token_matches(self.headers.get("X-Pulsepath-Token")):
             return True
         self._json({"error": "Pulsepath rejected this API request."}, status=403)
         return False
@@ -2253,6 +2345,14 @@ def run() -> None:
     PulsepathHandler.traces = traces
     PulsepathHandler.history = history
     server = ThreadingHTTPServer(("127.0.0.1", args.port), PulsepathHandler)
+    # Write the token only once the port is ours, so a second launch that
+    # fails to bind cannot replace the running instance's token.
+    try:
+        token_file = write_token_file(API_TOKEN, port=args.port)
+    except (OSError, RuntimeError) as error:
+        server.server_close()
+        history.close()
+        raise SystemExit(f"Pulsepath refused to start: could not store the session token ({error}).")
     collector.start()
 
     def stop_server(*_: Any) -> None:
@@ -2263,9 +2363,10 @@ def run() -> None:
 
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Pulsepath is running at {url}")
+    print(f"Session token stored in {token_file} (open the page with start.command or as {url}#k=<token>).")
     print("Capturing connection metadata only. Press Control-C to stop.")
     if not args.no_open:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.6, lambda: webbrowser.open(f"{url}#k={API_TOKEN}")).start()
 
     try:
         server.serve_forever()
@@ -2273,6 +2374,7 @@ def run() -> None:
         server.server_close()
         collector.stop()
         history.close()
+        remove_token_file(token_file, API_TOKEN)
 
 
 if __name__ == "__main__":

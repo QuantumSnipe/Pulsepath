@@ -7,7 +7,7 @@ Pulsepath is a local-first visual network activity explorer for **macOS only** (
 - Start (background collector + open browser): `make start`
 - Stop: `make stop`
 - Restart after Python collector changes: `make restart`
-- Foreground collector without opening a browser: `make run` or `python3 pulsepath.py --no-open --port 4173`
+- Foreground collector without opening a browser: `make run` or `python3 pulsepath.py --no-open --port 4173`; then `make start` opens the page with the session token (a plain `http://127.0.0.1:4173/` cannot call `/api/*`)
 - UI-only / simulation: open `index.html` in a browser (no live collector)
 
 If something is already listening on **4173**, do not start a second server. Prefer `make start` (reopens the existing instance) or `make restart`. Runtime PID/log: `~/Library/Caches/Pulsepath/` (or `$TMPDIR/Pulsepath` when `HOME` is unset).
